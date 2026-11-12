@@ -40,3 +40,12 @@ models:
     columns:
       - name: value
         data_tests: [not_null]
+  - name: obt_student_finance
+    description: One Big Table, one row per reportable invoice, for flat extracts (Excel, Power BI import).
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+      - name: school_name
+        data_tests: [not_null]
+      - name: campus_name
+        data_tests: [not_null]

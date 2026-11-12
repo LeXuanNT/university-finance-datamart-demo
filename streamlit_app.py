@@ -2,7 +2,7 @@
 University Finance Datamart: demo app (synthetic data).
 
 Reads the dbt-built DuckDB file. On first start (e.g. Streamlit Community Cloud) it lands the raw CSVs
-and runs `dbt build` (35 models, 2 seeds, 50 tests), so the app always shows numbers that passed every control.
+and runs `dbt build` (36 models, 2 seeds, 2 snapshots, 56 tests), so the app always shows numbers that passed every control.
 """
 import json
 import subprocess
@@ -16,7 +16,7 @@ import streamlit as st
 
 ROOT = Path(__file__).resolve().parent
 DB = ROOT / "uni_finance.duckdb"
-RUN_RESULTS = ROOT / "target" / "run_results.json"
+RUN_RESULTS = ROOT / "target" / "build_results.json"   # copy of run_results.json from dbt build
 REPO_URL = "https://github.com/LeXuanNT/university-finance-datamart-demo"
 
 # Validated categorical slots (light mode) + fixed status colours
@@ -29,7 +29,7 @@ st.set_page_config(page_title="University Finance Datamart (demo)", page_icon=":
 
 
 # ---------------------------------------------------------------- pipeline
-@st.cache_resource(show_spinner="Building the datamart: loading raw files and running dbt build (35 models, 50 tests)...")
+@st.cache_resource(show_spinner="Building the datamart: loading raw files and running dbt build (36 models, 56 tests)...")
 def ensure_built() -> str:
     if DB.exists() and RUN_RESULTS.exists():
         return "cached"
@@ -40,6 +40,12 @@ def ensure_built() -> str:
                          cwd=ROOT, capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError("dbt build failed: a model or a data test did not pass\n" + res.stdout[-3000:])
+    (ROOT / "target" / "run_results.json").replace(RUN_RESULTS)   # keep the build's test results
+    # month 2: a master-data change, captured by the SCD Type 2 snapshots
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "simulate_change.py")], check=True, cwd=ROOT)
+    subprocess.run([sys.executable, "-c", "from dbt.cli.main import cli; cli()", "snapshot",
+                    "--profiles-dir", str(ROOT), "--project-dir", str(ROOT), "--target", "local"],
+                   cwd=ROOT, capture_output=True, text=True, check=True)
     return "built"
 
 
@@ -93,7 +99,7 @@ if page == "Month-end headline":
     st.markdown(
         "- **Billed ≠ earned:** tuition billed but not yet taught sits as *deferred revenue*, not income.\n"
         "- **AR over 90 days** is the provisioning watch-list; DSO uses the last 12 months of billings.\n"
-        f"- Every figure here passed all {N_TESTS} dbt tests, including six reconciliations back to source totals.")
+        f"- Every figure here passed all {N_TESTS} dbt tests, including seven reconciliations back to source totals.")
 
 elif page == "Tuition & scholarships":
     df = q("""select fiscal_year, school_code, sum(net_tuition_vnd)/1e9 net_bn,
@@ -277,6 +283,22 @@ elif page == "Data quality & controls":
             st.dataframe(t, hide_index=True, width="stretch")
     else:
         st.info("Run `dbt build` to see test results here.")
+    st.subheader("Master-data history (SCD Type 2 snapshots)")
+    st.caption("dbt snapshots keep every version of the fee schedule and the cost-centre hierarchy, so a report can be "
+               "reproduced 'as at' any past date. The demo applies next month's extract: a fee increase and a re-org.")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Program fees** (`snap_program_fees`)")
+        st.dataframe(q("""select program_id, fee_per_semester_vnd, dbt_valid_from, dbt_valid_to
+                          from snapshots.snap_program_fees where program_id in (
+                              select program_id from snapshots.snap_program_fees group by 1 having count(*) > 1)
+                          order by program_id, dbt_valid_from"""), hide_index=True, width="stretch")
+    with c2:
+        st.markdown("**Cost centres** (`snap_cost_centres`)")
+        st.dataframe(q("""select cost_centre_id, cost_centre_name, dbt_valid_from, dbt_valid_to
+                          from snapshots.snap_cost_centres where cost_centre_id in (
+                              select cost_centre_id from snapshots.snap_cost_centres group by 1 having count(*) > 1)
+                          order by cost_centre_id, dbt_valid_from"""), hide_index=True, width="stretch")
 
 else:
     st.subheader("Layers")
@@ -297,4 +319,17 @@ else:
 - A guard hook blocks agents from running against production, `--full-refresh`, or editing raw SIS/Workday tables.
 - GitHub Actions runs all models and tests on every pull request; an optional review agent comments on the PR.
 """)
+    st.subheader("dbt techniques used")
+    st.markdown("""
+- **Incremental models** for payments and journal lines, with a lookback window for late-arriving rows and a unique key so re-runs are idempotent.
+- **Snapshots (SCD Type 2)** for the fee schedule and the cost-centre hierarchy.
+- **Macros**: money/date parsing across Snowflake and DuckDB, a shared aging-bucket rule, and a metadata-driven join that builds the flat extract.
+- **Seeds** for Finance-owned mappings; **analyses** for ad-hoc commentary queries; a **warn-level** business-rule test.
+- Landing from **Amazon S3** through a storage integration (`snowflake/02_s3_external_stage.sql`), optionally with Snowpipe.
+""")
+    st.subheader("Flat extract for Excel users")
+    obt = q("select * from finance.obt_student_finance")
+    st.caption(f"`obt_student_finance`: one row per invoice ({len(obt):,} rows) with program, school, campus and "
+               "payment status. Built from a metadata-driven join macro; a test proves it ties to the invoice fact.")
+    st.download_button("Download CSV", obt.to_csv(index=False).encode("utf-8"), "obt_student_finance.csv", "text/csv")
     st.markdown(f"Code, tests and lineage docs: [source code on GitHub]({REPO_URL})")

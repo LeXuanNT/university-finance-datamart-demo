@@ -23,15 +23,16 @@ The design follows the same layered idea as
 | raw | `RAW_SIS`, `RAW_WORKDAY` | tables (loaded by `COPY INTO`) | Extracts land as-is. **Every column is VARCHAR**, plus `_source_file` and `_loaded_at` |
 | staging | `STAGING` | views | One model per source table: dedupe, trim, standardise codes, parse dates, cast money to `DECIMAL(18,0)` |
 | intermediate | `INTERMEDIATE` | tables | Business logic: enrich invoices, quarantine test invoices, **revenue schedule** (billed → earned), invoice position at the snapshot |
-| marts / finance | `FINANCE` | tables | **Star schema for Power BI:** 6 dimensions, 5 facts |
+| marts / finance | `FINANCE` | tables (facts incremental) | **Star schema for Power BI:** 6 dimensions, 5 facts, plus a One Big Table extract |
 | marts / reporting | `REPORTING` | tables | Pre-built answers: KPIs, AR aging, collections, budget vs actual, school contribution |
 | marts / statements | `STATEMENTS` | tables | Income statement (AASB group format and VAS B02-DN), balance sheet extract, ECL allowance |
 | seeds | `REFERENCE` | tables | Finance-owned mappings: account → statement line, ECL provision matrix |
+| snapshots | `SNAPSHOTS` | SCD Type 2 tables | History of program fees and cost-centre hierarchy |
 | audit | `AUDIT` | table | `audit_data_quality` is a readable trail of every issue found and how it was handled |
 
 The full lineage graph is in `docs/dbt_docs_lineage.html`. Open it in a browser and click the graph icon at the bottom right.
 
-## Controls (`dbt build` runs 50 tests; all pass)
+## Controls (`dbt build` runs 56 tests; all pass)
 
 - **Integrity:** unique and not-null keys, foreign-key `relationships` (invoice → school/campus, journal line → cost centre), accepted values for status and payment channel.
 - **Finance reconciliations** (`tests/`):
@@ -41,6 +42,8 @@ The full lineage graph is in `docs/dbt_docs_lineage.html`. Open it in a browser 
   - The AR aging total ties to billed minus collected.
   - The AASB and VAS income statements give the same operating result.
   - Statement revenue equals earned tuition, and statement expenses equal GL actuals.
+  - The flat extract (`obt_student_finance`) carries exactly the invoices and net tuition of the fact table.
+- **Business-rule warnings:** `warn_invoice_above_fee_schedule` flags an invoice above its program fee without stopping the build.
 - **Freshness:** `dbt source freshness` warns if an SIS or Workday extract is more than 2 days old.
 
 If any test fails, `dbt build` stops, so bad numbers never reach Power BI.
@@ -73,6 +76,21 @@ If any test fails, `dbt build` stops, so bad numbers never reach Power BI.
 3. **STEM is the lowest-margin degree school** (~42% contribution vs 60%+ for Business and Design). It has a ~20% scholarship rate and sessional staff costs above plan.
 4. **Billed ≠ earned.** 283 bn is billed but not yet taught.
 5. **The raw data needed cleaning.** It had 479 duplicate invoices, 281 replayed payments (without the fix, 276 invoices would look overpaid) and 158 journal dates in dd/MM/yyyy format. All of this is logged in `audit_data_quality`.
+
+## dbt + Snowflake + AWS techniques
+
+These techniques come from the [Airbnb end-to-end project (dbt + Snowflake + AWS)](https://github.com/anshlambagit/Airbnb_Snowflake_DBT_Data_Engineer_Project), with its [video walkthrough](https://www.youtube.com/watch?v=3SZSDKEZqoA), adapted for finance controls:
+
+| Technique | Airbnb project | Here |
+|---|---|---|
+| Incremental models | bronze/silver loaded by `created_at` | `fct_student_payments` (45-day lookback for late bank-feed rows) and `fct_gl_actuals` (re-reads from the previous month for month-end adjustments); `unique_key` makes re-runs idempotent, and CI re-runs them to prove it |
+| Snapshots (SCD Type 2) | hosts, listings, bookings | `snap_program_fees` (fee schedule history) and `snap_cost_centres` (re-orgs), using the `check` strategy because the sources have no reliable `updated_at`. `scripts/simulate_change.py` applies next month's extract, and CI asserts the history |
+| One Big Table via a Jinja config list | `obt.sql` with hard-coded `AIRBNB.SILVER...` names | the `metadata_join` macro builds `obt_student_finance` through `ref()`, so lineage, CI and environments keep working |
+| Reusable macros | `multiply`, `tag`, `trimmer` | `money`, `parse_date` (cross-database), `aging_bucket` (one rule shared by the aging report, ECL and the extract) |
+| Source tests with `severity: warn` | booking amount check | fee-schedule check: flag, don't block month-end |
+| Analyses with Jinja loops | `loop.sql`, `if_else.sql` | `analyses/variance_commentary_draft.sql`: the variances above 10% per account category, ready for commentary |
+| S3 → Snowflake stage | `COPY INTO` with AWS keys in SQL | `snowflake/02_s3_external_stage.sql` uses a storage integration (IAM role, no keys in SQL), with an optional Snowpipe auto-ingest |
+| Custom `generate_schema_name` | yes | yes |
 
 ## Financial statements: group format (AASB) and local format (VAS)
 
@@ -130,7 +148,8 @@ The plugin layout follows the guide but has not yet been tested inside Cortex Co
 ```bash
 pip install -r requirements.txt
 python scripts/load_raw_local.py                 # lands raw_files/ into uni_finance.duckdb (all VARCHAR)
-dbt build --profiles-dir . --target local        # 35 models + 2 seeds + 50 tests
+dbt build --profiles-dir . --target local        # 36 models, 2 seeds, 2 snapshots, 56 tests
+python scripts/simulate_change.py && dbt snapshot --profiles-dir . --target local   # SCD2 demo
 dbt docs generate --static --profiles-dir . --target local
 ```
 

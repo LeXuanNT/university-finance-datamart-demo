@@ -1,0 +1,22 @@
+# SCD Type 2 history for master data Finance must be able to reproduce "as at" a past date.
+# strategy: check -> a new version row whenever a tracked column changes (sources carry no reliable updated_at).
+snapshots:
+  - name: snap_program_fees
+    description: Fee schedule history per program. Answers "what fee applied when this student was billed?"
+    relation: ref('stg_sis__programs')
+    config:
+      schema: snapshots
+      unique_key: program_id
+      strategy: check
+      check_cols: [fee_per_semester_vnd, program_level, school_code]
+      dbt_valid_to_current: "cast('9999-12-31' as timestamp)"
+
+  - name: snap_cost_centres
+    description: Cost-centre hierarchy history (name, division, school, campus) for restating reports after re-orgs.
+    relation: ref('stg_workday__cost_centres')
+    config:
+      schema: snapshots
+      unique_key: cost_centre_id
+      strategy: check
+      check_cols: [cost_centre_name, division, school_code, campus_id]
+      dbt_valid_to_current: "cast('9999-12-31' as timestamp)"

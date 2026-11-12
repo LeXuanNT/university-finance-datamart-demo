@@ -7,6 +7,8 @@ model-paths: ["models"]
 macro-paths: ["macros"]
 test-paths: ["tests"]
 seed-paths: ["seeds"]
+snapshot-paths: ["snapshots"]
+analysis-paths: ["analyses"]
 
 vars:
   snapshot_date: "2026-10-31"      # month-end close being reported; override: --vars '{snapshot_date: 2026-11-30}'

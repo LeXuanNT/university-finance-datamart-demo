@@ -18,8 +18,21 @@ jobs:
         run: pip install -r requirements.txt
       - name: Land raw files (all VARCHAR)
         run: python scripts/load_raw_local.py
-      - name: dbt build (35 models + 2 seeds + 50 tests)
+      - name: dbt build (models, seeds, snapshots, tests)
         run: dbt build --profiles-dir . --target local
+      - name: Incremental re-run (idempotency check)
+        run: dbt build --profiles-dir . --target local --select fct_student_payments+ fct_gl_actuals+
+      - name: SCD Type 2 demo (next month's master-data extract)
+        run: |
+          python scripts/simulate_change.py
+          dbt snapshot --profiles-dir . --target local
+          python - <<'PY'
+          import duckdb
+          con = duckdb.connect("uni_finance.duckdb", read_only=True)
+          n = con.sql("select count(*) from snapshots.snap_program_fees where dbt_valid_to < '9999-01-01'").fetchone()[0]
+          assert n == 3, f"expected 3 closed fee versions, got {n}"
+          print(f"SCD2 OK: {n} program fee versions closed")
+          PY
       - name: Source freshness
         run: dbt source freshness --profiles-dir . --target local
       - name: Data-quality evidence
