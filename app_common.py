@@ -1,9 +1,9 @@
 """
-Shared by the Streamlit apps: get the datamart, then query it.
+Used by the Streamlit app: get the datamart, then query it.
 
 Data flow: GitHub Actions builds and tests the datamart on every push to main and publishes the DuckDB file,
-the dbt test results and a manifest to the `datamart-latest` release. The apps download that published copy,
-so they only ever show data that passed every test. If the release cannot be reached (offline, first run of a
+the dbt test results and a manifest to the `datamart-latest` release. The app downloads that published copy,
+so it only ever shows data that passed every test. If the release cannot be reached (offline, first run of a
 fork) the app builds the datamart locally with the same steps. Set DATAMART_SOURCE=local to always build locally.
 """
 import json
@@ -127,6 +127,6 @@ digraph {
     load -> apps; }
   code -> raw [label="push"]; pub -> load [label="data"]; code -> apps [label="app code\n(auto-redeploy)", style=dashed, constraint=false];
   test -> stop [label="any failure", color="#C0392B", fontcolor="#C0392B"];
-  stop [label="Nothing published:\napps keep the last good data", fillcolor="#FBE9E7", color="#E0A79F"];
+  stop [label="Nothing published:\nthe app keeps the last good data", fillcolor="#FBE9E7", color="#E0A79F"];
 }""", width="stretch")
     st.caption(("On screen now: " + provenance(m)[6:]) if live else provenance(m))
