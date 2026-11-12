@@ -1,0 +1,16 @@
+program_id,program_name,school_code,school_name,level,fee_per_semester_vnd
+BUS101,Bachelor of Business (Economics & Finance),BUS,School of Business,UG,118000000
+BUS102,Bachelor of Business (Digital Marketing),BUS,School of Business,UG,118000000
+BUS103,Bachelor of Business (Logistics & SCM),BUS,School of Business,UG,118000000
+CDS101,Bachelor of Professional Communication,CDS,School of Communication & Design,UG,116000000
+CDS102,Bachelor of Design (Digital Media),CDS,School of Communication & Design,UG,116000000
+CDS103,Bachelor of Fashion (Enterprise),CDS,School of Communication & Design,UG,116000000
+STM101,Bachelor of Information Technology,STEM,School of Science & Technology,UG,122000000
+STM102,Bachelor of Software Engineering,STEM,School of Science & Technology,UG,122000000
+STM103,Bachelor of Engineering (Robotics) (Hons),STEM,School of Science & Technology,UG,124000000
+STM104,Bachelor of Applied Science (Aviation),STEM,School of Science & Technology,UG,124000000
+BUS201,Master of Business Administration,BUS,School of Business,PG,160000000
+BUS202,Master of International Business,BUS,School of Business,PG,150000000
+STM201,Master of Data Science,STEM,School of Science & Technology,PG,150000000
+PTH001,English for University (Advanced),PATH,Pathways & English,PATHWAY,62000000
+PTH002,Foundation Studies,PATH,Pathways & English,PATHWAY,70000000

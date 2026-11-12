@@ -1,0 +1,42 @@
+name: uni_finance
+version: "1.0.0"
+config-version: 2
+profile: uni_finance
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+
+vars:
+  snapshot_date: "2026-10-31"      # month-end close being reported; override: --vars '{snapshot_date: 2026-11-30}'
+  raw_sis_schema: raw_sis
+  raw_workday_schema: raw_workday
+
+models:
+  uni_finance:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: table
+      +schema: intermediate
+    marts:
+      +materialized: table
+      finance:
+        +schema: finance
+      reporting:
+        +schema: reporting
+      statements:
+        +schema: statements
+    audit:
+      +materialized: table
+      +schema: audit
+
+seeds:
+  uni_finance:
+    +schema: reference
+
+tests:
+  uni_finance:
+    +severity: error

@@ -1,0 +1,42 @@
+version: 2
+models:
+  - name: fct_tuition_invoices
+    description: One row per reportable tuition invoice (test invoices excluded). Grain = invoice.
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+      - name: school_code
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_school'), field: school_code}}
+      - name: campus_id
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_campus'), field: campus_id}}
+      - name: gross_fee_vnd
+        data_tests:
+          - positive_value
+  - name: fct_student_payments
+    columns:
+      - name: payment_id
+        data_tests: [unique, not_null]
+  - name: fct_gl_actuals
+    columns:
+      - name: journal_line_id
+        data_tests: [unique, not_null]
+      - name: account_category
+        data_tests: [not_null]
+      - name: cost_centre_id
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_cost_centre'), field: cost_centre_id}}
+  - name: dim_cost_centre
+    columns:
+      - name: cost_centre_id
+        data_tests: [unique, not_null]
+  - name: dim_school
+    columns:
+      - name: school_code
+        data_tests: [unique, not_null]
+  - name: rpt_finance_kpis
+    columns:
+      - name: value
+        data_tests: [not_null]

@@ -1,0 +1,18 @@
+# Two targets: `local` (DuckDB on your laptop, no account needed) and `snowflake`.
+uni_finance:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: ./uni_finance.duckdb
+      threads: 4
+    snowflake:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      authenticator: "{{ env_var('SNOWFLAKE_AUTHENTICATOR', 'externalbrowser') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'FINANCE_TRANSFORMER') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'FINANCE_WH') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'UNI_FINANCE_DEMO') }}"
+      schema: dbt
+      threads: 4

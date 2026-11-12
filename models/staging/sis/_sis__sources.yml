@@ -1,0 +1,17 @@
+version: 2
+sources:
+  - name: sis
+    description: >
+      Student Administration Management System (SIS) extracts: student master, programs, campuses,
+      tuition invoices and payments. Landed as-is, every column VARCHAR, plus _source_file / _loaded_at.
+    schema: "{{ var('raw_sis_schema') }}"
+    config:
+      loaded_at_field: _loaded_at
+      freshness:
+        warn_after: {count: 2, period: day}
+    tables:
+      - name: campuses
+      - name: programs
+      - name: students
+      - name: invoices
+      - name: payments

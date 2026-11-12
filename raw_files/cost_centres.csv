@@ -1,0 +1,15 @@
+cost_centre_id,cost_centre_name,division,school_code,campus_id
+CC-BUS-HCM,BUS Academic Delivery - HCM,Academic,BUS,CAM01
+CC-BUS-HN,BUS Academic Delivery - HN,Academic,BUS,CAM02
+CC-STEM-HCM,STEM Academic Delivery - HCM,Academic,STEM,CAM01
+CC-STEM-HN,STEM Academic Delivery - HN,Academic,STEM,CAM02
+CC-CDS-HCM,CDS Academic Delivery - HCM,Academic,CDS,CAM01
+CC-PATH-HCM,PATH Academic Delivery - HCM,Academic,PATH,CAM01
+CC-PATH-HN,PATH Academic Delivery - HN,Academic,PATH,CAM02
+CC-MKT,Marketing & Recruitment,Shared Services,,CAM01
+CC-IT,Information Technology Services,Shared Services,,CAM01
+CC-FAC-HCM,Facilities - Ho Chi Minh City,Shared Services,,CAM01
+CC-FAC-HN,Facilities - Hanoi,Shared Services,,CAM02
+CC-FIN,Finance & Procurement,Shared Services,,CAM01
+CC-SSV,Student Services & Wellbeing,Shared Services,,CAM01
+CC-DN,Da Nang Hub Operations,Shared Services,,CAM03

@@ -1,0 +1,11 @@
+account_code,account_name,aasb_line,aasb_order,vas_line,vas_order
+TUITION_GROSS,Tuition fees (gross),Fees and charges,10,Doanh thu cung cấp dịch vụ (Revenue from services),10
+SCHOLARSHIP,Scholarships and fee discounts,Fees and charges,10,Các khoản giảm trừ doanh thu (Revenue deductions),20
+5100,Academic Salaries,Employee related expenses,110,Giá vốn dịch vụ (Cost of services),40
+5200,Professional Staff Salaries,Employee related expenses,110,Chi phí quản lý doanh nghiệp (General & administration),70
+6100,Advertising & Agent Commission,Other expenses,160,Chi phí bán hàng (Selling expenses),60
+6200,Software & Cloud Subscriptions,Other expenses,160,Chi phí quản lý doanh nghiệp (General & administration),70
+6300,"Rent, Utilities & Maintenance",Other expenses,160,Chi phí quản lý doanh nghiệp (General & administration),70
+6400,Student Activities & Support,Other expenses,160,Giá vốn dịch vụ (Cost of services),40
+6500,Travel & Professional Development,Other expenses,160,Chi phí quản lý doanh nghiệp (General & administration),70
+ECL,Expected credit loss on student receivables,Impairment of financial assets,150,Chi phí quản lý doanh nghiệp (General & administration),70

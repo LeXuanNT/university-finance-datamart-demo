@@ -1,0 +1,61 @@
+version: 2
+models:
+  - name: stg_sis__campuses
+    columns:
+      - name: campus_id
+        data_tests: [unique, not_null]
+      - name: city
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['Ho Chi Minh City', 'Hanoi', 'Da Nang']}
+  - name: stg_sis__programs
+    columns:
+      - name: program_id
+        data_tests: [unique, not_null]
+  - name: stg_sis__students
+    columns:
+      - name: student_id
+        data_tests: [unique, not_null]
+      - name: program_id
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_sis__programs'), field: program_id}}
+      - name: campus_id
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_sis__campuses'), field: campus_id}}
+  - name: stg_sis__invoices
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+      - name: invoice_status
+        data_tests:
+          - accepted_values: {arguments: {values: ['ISSUED', 'CANCELLED']}}
+      - name: issue_date
+        data_tests: [not_null]
+      - name: due_date
+        data_tests: [not_null]
+  - name: stg_sis__payments
+    columns:
+      - name: payment_id
+        data_tests: [unique, not_null]
+      - name: payment_date
+        data_tests: [not_null]
+      - name: payment_channel
+        data_tests:
+          - accepted_values: {arguments: {values: ['BANK_TRANSFER', 'VNPAY', 'CARD', 'CASH']}}
+  - name: stg_workday__cost_centres
+    columns:
+      - name: cost_centre_id
+        data_tests: [unique, not_null]
+  - name: stg_workday__journal_lines
+    columns:
+      - name: journal_line_id
+        data_tests: [unique, not_null]
+      - name: posting_date
+        data_tests: [not_null]
+      - name: cost_centre_id
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_workday__cost_centres'), field: cost_centre_id}}
+  - name: stg_workday__budget
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [cost_centre_id, fiscal_month, account_code]}

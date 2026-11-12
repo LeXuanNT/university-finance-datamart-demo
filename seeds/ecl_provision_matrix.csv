@@ -1,0 +1,7 @@
+aging_bucket,min_days_past_due,max_days_past_due,ecl_rate
+0. Not yet due,-99999,0,0.005
+1. 1-30 days,1,30,0.02
+2. 31-60 days,31,60,0.05
+3. 61-90 days,61,90,0.10
+4. 91-180 days,91,180,0.30
+5. Over 180 days,181,99999,0.70

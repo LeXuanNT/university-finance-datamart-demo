@@ -1,0 +1,55 @@
+name: finance-dbt-review agent (Cortex Code)
+
+# Optional: an AI review of changed models against AGENTS.md, posted as a PR comment.
+# Needs secrets SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD (a Snowflake PAT).
+# Without them the job is skipped; the deterministic CI (ci.yml) still gates the merge.
+
+on:
+  pull_request:
+    paths: ["models/**", "tests/**", "macros/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    env:
+      HAS_SNOWFLAKE: ${{ secrets.SNOWFLAKE_ACCOUNT != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_SNOWFLAKE == 'true'
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        if: env.HAS_SNOWFLAKE == 'true'
+        with:
+          python-version: "3.12"
+      - name: Install dbt and Cortex Code CLI
+        if: env.HAS_SNOWFLAKE == 'true'
+        run: |
+          pip install -r requirements.txt
+          python scripts/load_raw_local.py
+          curl -LsS https://ai.snowflake.com/static/cc-scripts/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Snowflake connection
+        if: env.HAS_SNOWFLAKE == 'true'
+        run: |
+          mkdir -p ~/.snowflake
+          cat > ~/.snowflake/connections.toml <<TOML
+          [default]
+          account = "${{ secrets.SNOWFLAKE_ACCOUNT }}"
+          user = "${{ secrets.SNOWFLAKE_USER }}"
+          password = "${{ secrets.SNOWFLAKE_PASSWORD }}"
+          TOML
+          chmod 600 ~/.snowflake/connections.toml
+      - name: Run review agent
+        if: env.HAS_SNOWFLAKE == 'true'
+        run: cortex --print "Use the finance-dbt-review agent to review the changes in this PR" > review.md 2>/dev/null || true
+      - name: Comment on PR
+        if: env.HAS_SNOWFLAKE == 'true' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file review.md

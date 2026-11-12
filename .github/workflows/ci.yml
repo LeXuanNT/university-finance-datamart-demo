@@ -1,0 +1,36 @@
+name: dbt build (DuckDB)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Land raw files (all VARCHAR)
+        run: python scripts/load_raw_local.py
+      - name: dbt build (35 models + 2 seeds + 50 tests)
+        run: dbt build --profiles-dir . --target local
+      - name: Source freshness
+        run: dbt source freshness --profiles-dir . --target local
+      - name: Data-quality evidence
+        run: |
+          python - <<'PY'
+          import duckdb
+          con = duckdb.connect("uni_finance.duckdb", read_only=True)
+          rows = con.sql("select issue, rows_affected, action from audit.audit_data_quality").fetchall()
+          with open("dq.md", "w") as f:
+              f.write("| Issue | Rows | Action |\n|---|---:|---|\n")
+              for r in rows:
+                  f.write(f"| {r[0]} | {r[1]:,} | {r[2]} |\n")
+          PY
+          cat dq.md >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,17 @@
+version: 2
+seeds:
+  - name: account_statement_mapping
+    description: >
+      Chart-of-accounts mapping owned by Finance: each Workday account (plus tuition and scholarship) to its line
+      in the group annual-report income statement (AASB) and in the Vietnamese B02-DN statement (VAS).
+      ILLUSTRATIVE mapping for the demo; the real mapping is a Finance policy decision.
+    config:
+      column_types: {account_code: varchar, aasb_order: integer, vas_order: integer}
+    columns:
+      - name: account_code
+        data_tests: [unique, not_null]
+  - name: ecl_provision_matrix
+    description: >
+      Simplified AASB 9 provision matrix for student receivables (rate by days past due). ASSUMED rates for the demo.
+    config:
+      column_types: {min_days_past_due: integer, max_days_past_due: integer, ecl_rate: double}

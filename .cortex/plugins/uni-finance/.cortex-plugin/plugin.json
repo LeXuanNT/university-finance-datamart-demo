@@ -1,0 +1,9 @@
+{
+  "name": "uni-finance",
+  "description": "Finance dbt conventions, a production guard and a finance review subagent for the University Finance Datamart demo",
+  "version": "1.0.0",
+  "author": { "name": "Xuan Le" },
+  "skills": ["./skills"],
+  "agents": ["./agents"],
+  "hooks": "./hooks/hooks.json"
+}
