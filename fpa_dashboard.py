@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import fpa_model as fm
-from app_common import ensure_built, q
+from app_common import BUILD_RESULTS, ensure_built, q
 
 NAVY, PALE, GREEN, RED, AMBER, INK = "#3B4A7A", "#DDE2EC", "#2E7D32", "#C0392B", "#D9A441", "#52514e"
 WATCH, ATTENTION = 0.0, -5.0          # status thresholds, % vs budget
@@ -121,6 +121,26 @@ def three_bars(py, cur, bud, height=230):
     return (bars + text).properties(height=height).configure_view(stroke=None).configure_axis(grid=False)
 
 
+def paired_bars(df, cat, height=260, a="PY", b="Actual"):
+    """Horizontal bars per category: comparison (pale) above current (navy). df has columns cat, a, b."""
+    long = df.melt(id_vars=cat, value_vars=[a, b], var_name="series", value_name="value")
+    long["text"] = long.value.map(lambda v: f"{v:,.1f}")
+    base = alt.Chart(long).encode(
+        y=alt.Y(f"{cat}:N", sort=list(df[cat]), title=None, axis=alt.Axis(labelLimit=170)),
+        yOffset=alt.YOffset("series:N", sort=[a, b]))
+    bars = base.mark_bar(cornerRadiusEnd=2).encode(
+        x=alt.X("value:Q", title=None),
+        color=alt.Color("series:N", title=None, sort=[a, b], scale=alt.Scale(domain=[a, b], range=[PALE, NAVY]),
+                        legend=alt.Legend(orient="top")),
+        tooltip=[cat, "series", alt.Tooltip("value:Q", format=",.1f")])
+    text = base.mark_text(align="left", dx=4, fontSize=11, color=INK).encode(x="value:Q", text="text:N")
+    return (bars + text).properties(height=height).configure_view(stroke=None).configure_axis(grid=False)
+
+
+def in_list(ms):
+    return "(" + ", ".join(f"'{m}'" for m in ms) + ")"
+
+
 def chart(c):
     st.altair_chart(c, width="stretch")
 
@@ -151,7 +171,9 @@ RATIO_GOOD_UP = {"Current ratio": True, "Cash ratio": True, "Debt to equity": Fa
 
 with st.sidebar:
     page = st.radio("Page", ["Executive summary", "CFO brief", "YTD analysis", "Income statement",
-                             "Balance sheet", "Return on equity", "Cash flow", "Liquidity"])
+                             "Tuition & scholarships", "School contribution", "Cost centres vs budget",
+                             "Receivables & collections", "Balance sheet", "Return on equity", "Cash flow",
+                             "Liquidity", "Data quality & controls"])
     st.divider()
     st.caption("Built by Xuan Le as an interview demo. Not an official university system.")
 
@@ -460,7 +482,7 @@ elif page == "Cash flow":
         t["vs PY"] = t.Actual - t.PY
         st.table(t.map(lambda v: "" if pd.isna(v) else f"{v:,.1f}"))
 
-else:
+elif page == "Liquidity":
     act = [m for m in months_fy if m <= sel]
     interest_principal = A.loc[act].fin + fm.DEBT_REPAY_PER_QUARTER / 3
     cov = pd.DataFrame({"month": [pd.Period(m).strftime("%b") for m in act],
@@ -512,3 +534,266 @@ else:
         tooltip=["when", "item", alt.Tooltip("value:Q", format=",.1f")]
     ).properties(height=260, width=220).configure_view(stroke=None).configure_axis(grid=False))
     st.caption("DSCR = EBITDA ÷ (interest + scheduled principal) for the month. OPEX coverage = cash ÷ the month's operating costs.")
+
+elif page == "Tuition & scholarships":
+    def billed(ms, dim="'All'"):
+        return q(f"""select {dim} d, sum(gross_fee_vnd)/1e9 gross, sum(scholarship_vnd)/1e9 schol,
+                            sum(net_tuition_vnd)/1e9 net, count(distinct student_id) students, count(*) invoices
+                     from finance.obt_student_finance
+                     where invoice_status = 'ISSUED' and left(cast(issue_date as varchar), 7) in {in_list(ms)}
+                     group by 1 order by net desc""")
+    c_, p_ = billed(ytd).iloc[0], billed(py_ytd).iloc[0]
+    t = st.columns(5)
+    with t[0]: tile("Gross tuition fees", f(c_.gross), chip("vs PY", pct(c_.gross, p_.gross), c_.gross >= p_.gross))
+    sp, sp0 = 100 * c_.schol / c_.gross, 100 * p_.schol / p_.gross
+    with t[1]: tile("Scholarships", f(c_.schol), chip("vs PY", pct(c_.schol, p_.schol), c_.schol <= p_.schol))
+    with t[2]: tile("Scholarship rate", f"{sp:.1f}%", chip("vs PY", sp - sp0, sp <= sp0, " pp"))
+    with t[3]: tile("Net tuition billed", f(c_.net), chip("vs PY", pct(c_.net, p_.net), c_.net >= p_.net))
+    with t[4]: tile("Students billed", f"{int(c_.students):,}",
+                    chip("vs PY", pct(c_.students, p_.students), c_.students >= p_.students))
+    left, right = st.columns([2, 3])
+    with left:
+        band("From fees to revenue · YTD")
+        chart(waterfall([("Gross fees", c_.gross, "total"), ("Scholarships", -c_.schol, "step"),
+                         ("Net billed", c_.net, "subtotal"), ("Not yet earned", cur.revenue - c_.net, "step"),
+                         ("Revenue earned", cur.revenue, "total")], height=300))
+        note(f"Students were billed {f(c_.gross)} in fees YTD, of which {sp:.1f}% was given back as scholarships "
+             f"({sp - sp0:+.1f} pp vs PY). Net billing is {pct(c_.net, p_.net):+.1f}% vs PY on "
+             f"{pct(c_.students, p_.students):+.1f}% students. {f(max(c_.net - cur.revenue, 0))} of this year's billing "
+             f"is not yet earned and will be recognised as teaching is delivered.")
+    with right:
+        dims = {"School": "school_name", "Campus": "campus_name", "Program level": "program_level",
+                "Residency": "residency", "Program": "program_name"}
+        dname = st.segmented_control("Break down by", list(dims), default="School") or "School"
+        cy, py = billed(ytd, dims[dname]), billed(py_ytd, dims[dname])
+        m = cy.merge(py, on="d", how="left", suffixes=("", "_py")).fillna(0.0).head(10)
+        band(f"Net tuition billed by {dname.lower()} · YTD vs PY")
+        chart(paired_bars(m.rename(columns={"d": dname, "net_py": "PY", "net": "Actual"}), dname,
+                          height=max(200, 58 * len(m))))
+        tb = pd.DataFrame({dname: m.d, "Students": m.students.astype(int), "Gross fees": m.gross,
+                           "Scholarships": m.schol, "Scholarship %": 100 * m.schol / m.gross, "Net billed": m.net,
+                           "vs PY %": [pct(a_, b_) for a_, b_ in zip(m.net, m.net_py)]}).set_index(dname)
+        st.dataframe(tb.style.format({"Students": "{:,}", "Gross fees": "{:,.1f}", "Scholarships": "{:,.1f}",
+                                      "Scholarship %": "{:.1f}%", "Net billed": "{:,.1f}", "vs PY %": "{:+.1f}%"})
+                     .map(lambda v: f"color:{GREEN if v >= 0 else RED}", subset=["vs PY %"]),
+                     width="stretch", height=35 * len(tb) + 38)
+    st.caption("Source: tuition invoices from the student system (issued invoices only), by invoice issue date. Amounts in VND billion.")
+
+elif page == "School contribution":
+    band("School contribution · YTD")
+    rs, rsb, ds, dsb = M["rev_school"], M["rev_school_budget"], M["direct_school"], M["direct_school_budget"]
+    rows = []
+    for sc in fm.SCHOOLS:
+        r_, d_ = rs.loc[ytd, sc].sum(), ds.loc[ytd, sc].sum()
+        rp, dp = rs.loc[py_ytd, sc].sum(), ds.loc[py_ytd, sc].sum()
+        rb, db = rsb.loc[ytd, sc].sum(), dsb.loc[ytd, sc].sum()
+        rows.append({"School": SCHOOL_NAME[sc], "Revenue": r_, "Direct cost": d_, "Actual": r_ - d_,
+                     "Margin %": 100 * (r_ - d_) / r_, "PY": rp - dp, "Budget": rb - db,
+                     "Margin % PY": 100 * (rp - dp) / rp})
+    sc_df = pd.DataFrame(rows)
+    total = sc_df.Actual.sum()
+    shared = cur.gp - total
+    cols = st.columns(4)
+    for col, r_ in zip(cols, rows):
+        with col:
+            s_, color = status(pct(r_["Actual"], r_["Budget"]))
+            tile(f"{dot(color)}{r_['School']}", f(r_["Actual"]),
+                 chip("vs Bud", pct(r_["Actual"], r_["Budget"]), r_["Actual"] >= r_["Budget"]) +
+                 chip("vs PY", pct(r_["Actual"], r_["PY"]), r_["Actual"] >= r_["PY"]) +
+                 chip("margin", r_["Margin %"] - r_["Margin % PY"], r_["Margin %"] >= r_["Margin % PY"], " pp"))
+    left, right = st.columns([3, 2])
+    with left:
+        band("Contribution by school · PY vs actual")
+        chart(paired_bars(sc_df[["School", "PY", "Actual"]], "School", height=230))
+        tb = sc_df.set_index("School")[["Revenue", "Direct cost", "Actual", "Margin %", "Budget", "PY"]].rename(
+            columns={"Actual": "Contribution", "Budget": "Budget contribution", "PY": "PY contribution"})
+        st.dataframe(tb.style.format({c: "{:,.1f}" for c in tb.columns} | {"Margin %": "{:.1f}%"}), width="stretch",
+                     height=35 * 4 + 38)
+    with right:
+        band("From school contribution to EBITDA")
+        steps = [(r_["School"].split(" ")[0], r_["Actual"], "total" if i == 0 else "step") for i, r_ in enumerate(rows)]
+        steps += [("Schools", total, "subtotal")]
+        if abs(shared) >= 0.05:
+            steps += [("Other academic", shared, "step")]
+        steps += [("Marketing", -cur.sm, "step"), ("Shared services", -cur.ga, "step"), ("EBITDA", cur.ebitda, "total")]
+        chart(waterfall(steps, height=300))
+        best = max(rows, key=lambda r_: r_["Margin %"])
+        weak = min(rows, key=lambda r_: r_["Margin %"])
+        note(f"The four schools contribute {f(total)} before shared costs. {best['School']} has the strongest margin "
+             f"({best['Margin %']:.1f}%); {weak['School']} the weakest ({weak['Margin %']:.1f}%). Marketing and shared "
+             f"services absorb {f(cur.sm + cur.ga)}, leaving EBITDA of {f(cur.ebitda)}.")
+    legend()
+
+elif page == "Cost centres vs budget":
+    bva = q(f"""select cost_centre_name cc, division, account_category cat, sum(budget_vnd)/1e9 budget, sum(actual_vnd)/1e9 actual
+                from reporting.rpt_budget_vs_actual where fiscal_month in {in_list(ytd)} group by 1, 2, 3""")
+    by_cc = bva.groupby(["cc", "division"], as_index=False)[["budget", "actual"]].sum()
+    by_cc["var"] = by_cc.actual - by_cc.budget
+    by_cc["var_pct"] = 100 * by_cc["var"] / by_cc.budget
+    by_cc["status"] = by_cc.var_pct.map(lambda v: "Over budget" if v > 2 else ("Under budget" if v < -2 else "On budget"))
+    by_cc = by_cc.sort_values("var", ascending=False)
+    tb_, ta_ = by_cc.budget.sum(), by_cc.actual.sum()
+    t = st.columns(4)
+    with t[0]: tile("Operating cost · actual", f(ta_), chip("vs Bud", pct(ta_, tb_), ta_ <= tb_))
+    with t[1]: tile("Operating cost · budget", f(tb_))
+    with t[2]: tile("Variance", f"{ta_ - tb_:+,.1f}", chip("of budget", pct(ta_, tb_), ta_ <= tb_))
+    over = by_cc[by_cc.status == "Over budget"]
+    with t[3]: tile("Cost centres over budget", f"{len(over)} of {len(by_cc)}",
+                    chip("overspend", over["var"].sum(), False, "") if len(over) else "")
+    left, right = st.columns([3, 2])
+    with left:
+        band("Variance to budget by cost centre · YTD (red = overspend)")
+        d = by_cc.copy()
+        d["text"] = d["var"].map(lambda v: f"{v:+,.1f}")
+        base = alt.Chart(d).encode(y=alt.Y("cc:N", sort=list(d.cc), title=None, axis=alt.Axis(labelLimit=190)))
+        chart((base.mark_bar(height=14, cornerRadius=2).encode(
+            x=alt.X("var:Q", title=None),
+            color=alt.condition("datum.var > 0", alt.value(RED), alt.value(GREEN)),
+            tooltip=[alt.Tooltip("cc", title="Cost centre"), "division", alt.Tooltip("budget:Q", format=",.1f"),
+                     alt.Tooltip("actual:Q", format=",.1f"), alt.Tooltip("var_pct:Q", format="+.1f", title="Variance %")])
+            + base.mark_text(dx=6, fontSize=11, color=INK, align="left").encode(
+                x=alt.X("pos:Q"), text="text:N").transform_calculate(pos="max(datum.var, 0)")
+        ).properties(height=30 * len(d)).configure_view(stroke=None).configure_axis(grid=False))
+    with right:
+        band("Budget to actual by cost type")
+        by_cat = bva.groupby("cat")[["budget", "actual"]].sum()
+        by_cat["var"] = by_cat.actual - by_cat.budget
+        by_cat = by_cat.sort_values("var", ascending=False)
+        chart(waterfall([("Budget", tb_, "total")] + [(c.replace(" & ", " & "), v, "step") for c, v in by_cat["var"].items()]
+                        + [("Actual", ta_, "total")], height=300, good_up=False))
+        worst, best = by_cc.iloc[0], by_cc.iloc[-1]
+        note(f"Operating costs are {abs(pct(ta_, tb_)):.1f}% {'over' if ta_ > tb_ else 'under'} budget YTD. "
+             f"Largest overspend: {worst.cc} ({worst['var']:+,.1f}, {worst.var_pct:+.1f}%). "
+             f"Largest saving: {best.cc} ({best['var']:+,.1f}). By cost type, {by_cat.index[0]} moved most against budget "
+             f"({by_cat['var'].iloc[0]:+,.1f}).")
+    show = by_cc.rename(columns={"cc": "Cost centre", "division": "Division", "budget": "Budget", "actual": "Actual",
+                                 "var": "Variance", "var_pct": "Variance %", "status": "Status"}).set_index("Cost centre")
+    st.dataframe(show.style.format({"Budget": "{:,.1f}", "Actual": "{:,.1f}", "Variance": "{:+,.1f}", "Variance %": "{:+.1f}%"})
+                 .map(lambda v: f"color:{RED if v > 0 else GREEN}", subset=["Variance"]), width="stretch",
+                 height=35 * len(show) + 38)
+    st.caption("Source: Workday journal lines and budget by cost centre. A cost centre is flagged when it is more than 2% away from budget.")
+
+elif page == "Receivables & collections":
+    pos = q("""select cast(p.as_of_date as varchar) d, m.aging_bucket bucket, m.ecl_rate rate, c.campus_name campus,
+                      count(*) invoices, sum(p.outstanding_vnd)/1e9 ar, sum(p.outstanding_vnd * m.ecl_rate)/1e9 ecl
+               from statements.int_ar_position_by_date p
+               join reference.ecl_provision_matrix m on p.days_past_due between m.min_days_past_due and m.max_days_past_due
+               join finance.dim_campus c using (campus_id)
+               where p.outstanding_vnd > 0 group by all""")
+    dates = sorted(pos.d.unique())
+    d0, d1 = dates[0], dates[-1]
+    lab = lambda d: pd.Timestamp(d).strftime("%d %b %Y")
+    a1, a0 = pos[pos.d == d1], pos[pos.d == d0]
+    k = lambda df: {"ar": df.ar.sum(), "ecl": df.ecl.sum(), "o90": df[df.rate >= 0.3].ar.sum()}
+    k1, k0 = k(a1), k(a0)
+    kp = q("select kpi, value from reporting.rpt_finance_kpis").set_index("kpi").value
+    coll = q("select * from reporting.rpt_collections")
+    mature = coll[(coll.fiscal_year == FY) & (coll.period_status == "MATURE")]
+    mature_py = coll[coll.fiscal_year == FY - 1]
+    rate = lambda df, col: 100 * df[col].sum() / df.net_billed_vnd.sum()
+    cr, cr0 = rate(mature, "collected_vnd"), rate(mature_py, "collected_vnd")
+    ot, ot0 = rate(mature, "collected_by_due_date_vnd"), rate(mature_py, "collected_by_due_date_vnd")
+    st.caption(f"Receivables are a position at the latest close ({lab(d1)}) against the opening balance ({lab(d0)}); "
+               "the month selector does not apply to this page.")
+    t = st.columns(6)
+    with t[0]: tile("Student receivables", f(k1["ar"]), chip("vs Op Bal", pct(k1["ar"], k0["ar"]), k1["ar"] <= k0["ar"]))
+    s1, s0 = 100 * k1["o90"] / k1["ar"], 100 * k0["o90"] / k0["ar"]
+    with t[1]: tile("Over 90 days", f"{s1:.1f}%", chip("vs Op Bal", s1 - s0, s1 <= s0, " pp"))
+    with t[2]: tile("Expected credit loss", f(k1["ecl"]), chip("vs Op Bal", k1["ecl"] - k0["ecl"], k1["ecl"] <= k0["ecl"], ""))
+    with t[3]: tile("Days sales outstanding", f"{kp['Days sales outstanding (DSO)']:.0f} days")
+    with t[4]: tile("Collection rate", f"{cr:.1f}%", chip("vs PY", cr - cr0, cr >= cr0, " pp"))
+    with t[5]: tile("Paid by due date", f"{ot:.1f}%", chip("vs PY", ot - ot0, ot >= ot0, " pp"))
+    left, mid, right = st.columns(3)
+    buckets = sorted(pos.bucket.unique())
+    with left:
+        band("Receivables by age · opening vs latest")
+        ag = pd.DataFrame({"Age": [b.split(". ")[1] for b in buckets],
+                           "Opening": [a0[a0.bucket == b].ar.sum() for b in buckets],
+                           "Latest": [a1[a1.bucket == b].ar.sum() for b in buckets]})
+        chart(paired_bars(ag, "Age", height=300, a="Opening", b="Latest"))
+    with mid:
+        band("Latest receivables by campus and age")
+        d = a1.assign(Age=a1.bucket.str.split(". ", regex=False).str[1], campus=a1.campus.str.replace(" Campus", ""))
+        ages = [b.split(". ")[1] for b in buckets]
+        st.altair_chart(alt.Chart(d).mark_bar(stroke="white", strokeWidth=2).encode(
+            x=alt.X("campus:N", title=None, axis=alt.Axis(labelAngle=0)), y=alt.Y("sum(ar):Q", title="VND bn"),
+            color=alt.Color("Age:N", sort=ages, title=None, legend=alt.Legend(orient="top", columns=3),
+                            scale=alt.Scale(domain=ages, range=["#D3D8E6", "#A3ADCB", "#6D7BA8", "#EBB894", "#DF9565", "#C0392B"][:len(ages)] if len(ages) <= 6 else None)),
+            order=alt.Order("bucket:N"), tooltip=["campus", "Age", alt.Tooltip("sum(ar):Q", format=",.1f", title="VND bn")]
+        ).properties(height=270).configure_view(stroke=None).configure_axis(grid=False), width="stretch")
+    with right:
+        band("Collection rate by closed semester and campus")
+        c2 = coll[coll.period_status == "MATURE"].assign(campus=coll.campus_name.str.replace(" Campus", ""))
+        st.altair_chart(alt.Chart(c2).mark_line(point=True, strokeWidth=2).encode(
+            x=alt.X("semester:N", title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("collection_rate_pct:Q", title="%", scale=alt.Scale(zero=False)),
+            color=alt.Color("campus:N", title=None, legend=alt.Legend(orient="top"),
+                            scale=alt.Scale(range=[NAVY, "#C9713D", "#8792B5"])),
+            tooltip=["semester", "campus", "period_status", alt.Tooltip("collection_rate_pct:Q", title="Collected %"),
+                     alt.Tooltip("on_time_collection_pct:Q", title="By due date %")]
+        ).properties(height=270).configure_view(stroke=None).configure_axis(grid=False), width="stretch")
+    left, right = st.columns([3, 2])
+    with left:
+        band(f"Expected credit loss (provision matrix) · {lab(d1)}")
+        ecl = a1.groupby(["bucket", "rate"], as_index=False)[["invoices", "ar", "ecl"]].sum()
+        tb = pd.DataFrame({"Age": ecl.bucket.str.split(". ", regex=False).str[1], "Open invoices": ecl.invoices, "Receivable": ecl.ar,
+                           "Loss rate": 100 * ecl.rate, "Allowance": ecl.ecl}).set_index("Age")
+        tb.loc["Total"] = [tb["Open invoices"].sum(), tb.Receivable.sum(), 100 * tb.Allowance.sum() / tb.Receivable.sum(),
+                           tb.Allowance.sum()]
+        st.dataframe(tb.style.format({"Open invoices": "{:,.0f}", "Receivable": "{:,.1f}", "Loss rate": "{:.1f}%",
+                                      "Allowance": "{:,.1f}"}), width="stretch", height=35 * len(tb) + 38)
+    with right:
+        band("How students paid · YTD")
+        ch = q(f"""select payment_channel channel, sum(amount_vnd)/1e9 v from finance.fct_student_payments
+                   where fiscal_month in {in_list(ytd)} group by 1 order by v desc""")
+        ch["label"] = ch.channel.str.replace("_", " ").str.title().str.replace("Vnpay", "VNPay")
+        ch["text"] = [f"{v:,.1f} ({100 * v / ch.v.sum():.0f}%)" for v in ch.v]
+        base = alt.Chart(ch).encode(y=alt.Y("label:N", sort=list(ch.label), title=None))
+        chart((base.mark_bar(height=18, color=NAVY, cornerRadiusEnd=2).encode(x=alt.X("v:Q", title=None, axis=None))
+               + base.mark_text(align="left", dx=4, color=INK).encode(x="v:Q", text="text:N")
+               ).properties(height=170).configure_view(stroke=None).configure_axis(grid=False))
+    hanoi = coll[(coll.campus_name.str.contains("Hanoi")) & (coll.period_status == "MATURE")].collection_rate_pct.mean()
+    others = coll[(~coll.campus_name.str.contains("Hanoi")) & (coll.period_status == "MATURE")].collection_rate_pct.mean()
+    fresh = a1[a1.rate < 0.05].ar.sum()
+    note(f"Receivables stand at {f(k1['ar'])}; {f(fresh)} of that is the semester just billed and under 30 days past due. "
+         f"{s1:.1f}% of the balance is older than 90 days ({s1 - s0:+.1f} pp vs opening). "
+         f"The allowance needed is {f(k1['ecl'])}, or {100 * k1['ecl'] / k1['ar']:.1f}% of the balance. "
+         f"Hanoi collects {hanoi:.1f}% of closed-semester billing against {others:.1f}% at the other campuses: "
+         f"that gap is the first place to act.")
+
+elif page == "Data quality & controls":
+    import json
+    band("Can the numbers be trusted?")
+    res = json.loads(BUILD_RESULTS.read_text())["results"] if BUILD_RESULTS.exists() else []
+    tests = [r for r in res if r["unique_id"].startswith("test.")]
+    passed = sum(r["status"] == "pass" for r in tests)
+    models = sum(r["unique_id"].startswith("model.") for r in res)
+    dq = q("select issue, source, rows_affected, action from audit.audit_data_quality")
+    t = st.columns(4)
+    with t[0]: tile("Automated tests passed", f"{passed} of {len(tests)}")
+    with t[1]: tile("Models built", f"{models}")
+    with t[2]: tile("Source rows repaired", f"{int(dq.rows_affected.sum()):,}")
+    with t[3]: tile("Data issues handled", f"{len(dq)}")
+    band("Source data issues found and how they were handled")
+    st.dataframe(dq.rename(columns={"issue": "Issue", "source": "Source", "rows_affected": "Rows", "action": "Action"})
+                 .set_index("Issue").style.format({"Rows": "{:,}"}), width="stretch", height=35 * len(dq) + 38)
+    band("Reconciliations run on every build")
+    recon = [r for r in tests if r["unique_id"].split(".")[2].startswith("assert_")]
+    nice = lambda n: (n.replace("assert_", "").replace("_", " ").capitalize().replace("Gl ", "Ledger ")
+                      .replace("Ar ties", "Receivables tie").replace("Obt ties", "Student finance table ties")
+                      .replace("Aasb and vas", "AASB and VAS"))
+    st.dataframe(pd.DataFrame({"Control": [nice(r["unique_id"].split(".")[2]) for r in recon],
+                               "Result": ["Pass" if r["status"] == "pass" else r["status"].title() for r in recon]})
+                 .set_index("Control"), width="stretch", height=35 * max(len(recon), 1) + 38)
+    band("Where each page gets its data")
+    cover = [("Executive summary, CFO brief, YTD analysis, Income statement", "Earned tuition revenue, ledger actuals, budget, cost centres"),
+             ("Tuition & scholarships", "Tuition invoices with student, program, school and campus"),
+             ("School contribution", "Earned revenue and direct costs by school"),
+             ("Cost centres vs budget", "Budget vs actual by cost centre and cost type"),
+             ("Receivables & collections", "Receivable position by date, loss-rate matrix, collections by semester, payments"),
+             ("Balance sheet, Cash flow, Liquidity, Return on equity", "Billings, payments, revenue schedule, ledger; plus the illustrative assumptions"),
+             ("Data quality & controls", "Data-quality audit and the build's test results")]
+    st.dataframe(pd.DataFrame(cover, columns=["Pages", "Datamart data used"]).set_index("Pages"), width="stretch",
+                 height=35 * len(cover) + 38)
+    st.caption("Every figure in this dashboard is read from the same tested datamart as the first app. Only fixed assets, "
+               "borrowings, tax and the revenue budget are assumptions, because the source systems in this demo do not hold them.")

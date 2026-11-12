@@ -130,7 +130,7 @@ To deploy on Streamlit Community Cloud: go to share.streamlit.io, choose **Creat
 
 ## CFO / FP&A dashboard (second app)
 
-`fpa_dashboard.py` presents the same datamart in a CFO dashboard format: one month selector, YTD against budget and prior year, status flags, waterfalls and a one-line insight on every page.
+`fpa_dashboard.py` uses every mart in the datamart, presented in a CFO dashboard format: one month selector, YTD against budget and prior year, status flags, waterfalls and a one-line insight on every page.
 
 | Page | What it answers |
 |---|---|
@@ -138,10 +138,15 @@ To deploy on Streamlit Community Cloud: go to share.streamlit.io, choose **Creat
 | CFO brief | Status, key driver, risk and action for revenue, gross profit, EBITDA and net profit |
 | YTD analysis | What moved each metric from prior year to this year, by school or by cost line |
 | Income statement | Month, YTD and full year (actual + forecast) against prior year and budget |
+| Tuition & scholarships | Gross fees to scholarships to net billing to earned revenue; by school, campus, level, residency, program |
+| School contribution | Contribution and margin by school against budget and prior year, down to EBITDA |
+| Cost centres vs budget | Variance by cost centre and by cost type |
+| Receivables & collections | Aging, expected credit loss, DSO, collection rates by campus, payment channels |
 | Balance sheet | Movement, composition and strength against the opening balance |
 | Return on equity | DuPont: margin, asset turnover and leverage |
 | Cash flow | Opening to closing cash and the indirect statement |
 | Liquidity | Debt service coverage, months of cash, liquidity against borrowings |
+| Data quality & controls | Tests, reconciliations, source issues handled, and which data each page uses |
 
 Revenue, costs, the cost budget, billings and collections come from the dbt marts. Fixed assets, borrowings, tax and the revenue budget are illustrative assumptions kept in `fpa_model.py`, which CI checks: the balance sheet must balance and the cash flow must explain the movement in cash.
 
