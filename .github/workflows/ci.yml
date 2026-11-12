@@ -29,7 +29,7 @@ jobs:
           python - <<'PY'
           import duckdb
           con = duckdb.connect("uni_finance.duckdb", read_only=True)
-          n = con.sql("select count(*) from snapshots.snap_program_fees where dbt_valid_to < '9999-01-01'").fetchone()[0]
+          n = con.execute("select count(*) from snapshots.snap_program_fees where dbt_valid_to < '9999-01-01'").fetchone()[0]
           assert n == 3, f"expected 3 closed fee versions, got {n}"
           print(f"SCD2 OK: {n} program fee versions closed")
           PY
