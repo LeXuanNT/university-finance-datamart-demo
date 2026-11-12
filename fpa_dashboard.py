@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import fpa_model as fm
-from app_common import BUILD_RESULTS, ensure_built, q
+from app_common import BUILD_RESULTS, ensure_built, flow_chart, provenance, q
 
 NAVY, PALE, GREEN, RED, AMBER, INK = "#3B4A7A", "#DDE2EC", "#2E7D32", "#C0392B", "#D9A441", "#52514e"
 WATCH, ATTENTION = 0.0, -5.0          # status thresholds, % vs budget
@@ -18,7 +18,7 @@ METRICS = {"revenue": "Revenue", "gp": "Gross profit", "ebitda": "EBITDA", "np":
 SCHOOL_NAME = {"BUS": "Business", "STEM": "Science & Technology", "CDS": "Communication & Design", "PATH": "Pathways & English"}
 
 st.set_page_config(page_title="CFO dashboard (demo)", page_icon=":bar_chart:", layout="wide")
-ensure_built()
+BUILD_INFO = ensure_built()
 st.markdown("""<style>
 .tile{border:1px solid #e3e3e3;border-radius:8px;padding:10px 12px;background:#fff;margin-bottom:10px}
 .tile .l{font-size:13px;color:#52514e}.tile .v{font-size:26px;font-weight:600;color:#3B4A7A;line-height:1.3}
@@ -175,6 +175,7 @@ with st.sidebar:
                              "Receivables & collections", "Balance sheet", "Return on equity", "Cash flow",
                              "Liquidity", "Data quality & controls"])
     st.divider()
+    st.caption(provenance(BUILD_INFO))
     st.caption("Built by Xuan Le as an interview demo. Not an official university system.")
 
 # ------------------------------------------------------------------ pages
@@ -785,6 +786,8 @@ elif page == "Data quality & controls":
     st.dataframe(pd.DataFrame({"Control": [nice(r["unique_id"].split(".")[2]) for r in recon],
                                "Result": ["Pass" if r["status"] == "pass" else r["status"].title() for r in recon]})
                  .set_index("Control"), width="stretch", height=35 * max(len(recon), 1) + 38)
+    band("Data flow: from GitHub to this dashboard")
+    flow_chart(BUILD_INFO)
     band("Where each page gets its data")
     cover = [("Executive summary, CFO brief, YTD analysis, Income statement", "Earned tuition revenue, ledger actuals, budget, cost centres"),
              ("Tuition & scholarships", "Tuition invoices with student, program, school and campus"),

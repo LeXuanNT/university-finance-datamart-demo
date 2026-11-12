@@ -106,6 +106,33 @@ These techniques come from the [Airbnb end-to-end project (dbt + Snowflake + AWS
 
 Both mappings live in `seeds/account_statement_mapping.csv`, a Finance-owned file. The mapping and the ECL rates in `seeds/ecl_provision_matrix.csv` are **illustrative assumptions**.
 
+## Data flow: from GitHub to Streamlit
+
+```mermaid
+flowchart LR
+  A[Push to main<br/>dbt models, tests, raw extracts, app code] --> B
+  subgraph CI[GitHub Actions: every push and nightly]
+    B[1. Land raw files] --> C[2. dbt build<br/>staging, marts, reporting]
+    C --> D[3. Tests and controls<br/>56 tests, reconciliations,<br/>statements tie out]
+    D -- only if all pass --> E[4. Publish release datamart-latest<br/>DuckDB file, test results, manifest]
+  end
+  D -- any failure --> X[Nothing published:<br/>apps keep the last good data]
+  E -- data --> F
+  A -. app code, auto-redeploy .-> G
+  subgraph ST[Streamlit Community Cloud]
+    F[5. App downloads the published datamart<br/>re-checked every 10 minutes] --> G[6. Finance datamart app<br/>CFO / FP&A dashboard]
+  end
+```
+
+| Step | Where | What happens |
+|---|---|---|
+| Build and test | `.github/workflows/ci.yml` | Lands the raw files, runs `dbt build`, the incremental re-run, the SCD2 check, source freshness and the three-statement tie-out |
+| Publish | same workflow, last step | On `main` only, and only when every step passed: uploads `uni_finance.duckdb`, `build_results.json` and `manifest.json` (commit, run, time, tests passed) to the `datamart-latest` release |
+| Load | `app_common.py` | Both apps download the published datamart and re-check the manifest every 10 minutes, so a new build reaches an open app without a restart |
+| Show | sidebar of both apps | The build number, commit and time of the data on screen, linked back to the GitHub run |
+
+A failed test stops the flow before publishing, so the apps never show untested numbers. If the release cannot be reached, the app builds the datamart itself with the same steps (`DATAMART_SOURCE=local` forces this).
+
 ## Live demo app (Streamlit)
 
 `streamlit_app.py` reads the dbt-built DuckDB file. It has 9 pages:

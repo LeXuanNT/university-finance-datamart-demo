@@ -5,10 +5,14 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 23 * * *"   # nightly refresh, 06:00 Vietnam time
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to publish the tested datamart as a release
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,6 +24,8 @@ jobs:
         run: python scripts/load_raw_local.py
       - name: dbt build (models, seeds, snapshots, tests)
         run: dbt build --profiles-dir . --target local
+      - name: Keep the build's test results
+        run: cp target/run_results.json target/build_results.json
       - name: Incremental re-run (idempotency check)
         run: dbt build --profiles-dir . --target local --select fct_student_payments+ fct_gl_actuals+
       - name: SCD Type 2 demo (next month's master-data extract)
@@ -59,3 +65,36 @@ jobs:
           assert abs((bs.cash.diff().dropna() - cf.net.iloc[1:]).abs().max()) < 0.01, "cash flow does not explain cash movement"
           print("FP&A model OK: balance sheet balances and cash flow ties to cash")
           PY
+
+      # Runs only when every step above passed, and never for pull requests: the apps read this copy.
+      - name: Publish the tested datamart for the Streamlit apps
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import datetime, json, os, duckdb
+          res = json.load(open("target/build_results.json"))["results"]
+          tests = [r for r in res if r["unique_id"].startswith("test.")]
+          con = duckdb.connect("uni_finance.duckdb", read_only=True)
+          json.dump({
+              "source": "github-actions",
+              "commit": os.environ["GITHUB_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_number": os.environ["GITHUB_RUN_NUMBER"],
+              "trigger": os.environ["GITHUB_EVENT_NAME"],
+              "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+              "duckdb_version": duckdb.__version__,
+              "models": sum(r["unique_id"].startswith("model.") for r in res),
+              "tests_total": len(tests),
+              "tests_passed": sum(r["status"] == "pass" for r in tests),
+              "invoices": con.execute("select count(*) from finance.fct_tuition_invoices").fetchone()[0],
+              "snapshot_date": str(con.execute("select max(snapshot_date) from reporting.rpt_finance_kpis").fetchone()[0]),
+          }, open("manifest.json", "w"), indent=2)
+          PY
+          cat manifest.json
+          cp target/build_results.json build_results.json
+          gh release delete datamart-latest --cleanup-tag --yes || true
+          gh release create datamart-latest uni_finance.duckdb build_results.json manifest.json \
+            --target "$GITHUB_SHA" --title "Datamart (latest tested build)" \
+            --notes "Published by GitHub Actions run $GITHUB_RUN_NUMBER after all dbt models, tests and controls passed. The Streamlit apps read this copy."

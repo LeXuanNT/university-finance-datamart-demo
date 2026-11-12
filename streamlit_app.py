@@ -1,23 +1,17 @@
 """
 University Finance Datamart: demo app (synthetic data).
 
-Reads the dbt-built DuckDB file. On first start (e.g. Streamlit Community Cloud) it lands the raw CSVs
-and runs `dbt build` (36 models, 2 seeds, 2 snapshots, 56 tests), so the app always shows numbers that passed every control.
+Reads the datamart that GitHub Actions built, tested and published (36 models, 2 seeds, 2 snapshots, 56 tests),
+so the app only shows numbers that passed every control. Falls back to building it locally (see app_common.py).
 """
 import json
-import subprocess
-import sys
-from pathlib import Path
 
 import altair as alt
-import duckdb
 import pandas as pd
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parent
-DB = ROOT / "uni_finance.duckdb"
-RUN_RESULTS = ROOT / "target" / "build_results.json"   # copy of run_results.json from dbt build
-REPO_URL = "https://github.com/LeXuanNT/university-finance-datamart-demo"
+from app_common import BUILD_RESULTS as RUN_RESULTS   # copy of run_results.json from dbt build
+from app_common import REPO_URL, ensure_built, flow_chart, provenance, q
 
 # Validated categorical slots (light mode) + fixed status colours
 SCHOOL_COLORS = {"BUS": "#2a78d6", "STEM": "#eb6834", "CDS": "#1baf7a", "PATH": "#eda100"}
@@ -28,28 +22,8 @@ BN = 1e9
 st.set_page_config(page_title="University Finance Datamart (demo)", page_icon=":bar_chart:", layout="wide")
 
 
-# ---------------------------------------------------------------- pipeline
-@st.cache_resource(show_spinner="Building the datamart: loading raw files and running dbt build (36 models, 56 tests)...")
-def ensure_built() -> str:
-    if DB.exists() and RUN_RESULTS.exists():
-        return "cached"
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "load_raw_local.py")], check=True, cwd=ROOT)
-    # dbt runs in its own process so its DuckDB connection is closed before the app reads the file
-    res = subprocess.run([sys.executable, "-c", "from dbt.cli.main import cli; cli()", "build",
-                          "--profiles-dir", str(ROOT), "--project-dir", str(ROOT), "--target", "local"],
-                         cwd=ROOT, capture_output=True, text=True)
-    if res.returncode != 0:
-        raise RuntimeError("dbt build failed: a model or a data test did not pass\n" + res.stdout[-3000:])
-    (ROOT / "target" / "run_results.json").replace(RUN_RESULTS)   # keep the build's test results
-    # month 2: a master-data change, captured by the SCD Type 2 snapshots
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "simulate_change.py")], check=True, cwd=ROOT)
-    subprocess.run([sys.executable, "-c", "from dbt.cli.main import cli; cli()", "snapshot",
-                    "--profiles-dir", str(ROOT), "--project-dir", str(ROOT), "--target", "local"],
-                   cwd=ROOT, capture_output=True, text=True, check=True)
-    return "built"
-
-
-ensure_built()
+# ---------------------------------------------------------------- pipeline (see app_common.py)
+BUILD_INFO = ensure_built()
 
 
 def n_tests() -> int:
@@ -61,11 +35,6 @@ def n_tests() -> int:
 
 N_TESTS = n_tests()
 
-
-@st.cache_data
-def q(sql: str) -> pd.DataFrame:
-    with duckdb.connect(str(DB), read_only=True) as con:
-        return con.sql(sql).df()
 
 
 def bar_style(chart):
@@ -99,6 +68,7 @@ with st.sidebar:
                              "How it's built"])
     st.divider()
     st.markdown(f"[Source code on GitHub]({REPO_URL})")
+    st.caption(provenance(BUILD_INFO))
     st.caption("Built by Xuan Le as an interview demo. Not an official university system.")
 
 # ---------------------------------------------------------------- pages
@@ -399,6 +369,8 @@ elif page == "Data quality & controls":
                           order by cost_centre_id, dbt_valid_from"""), hide_index=True, width="stretch")
 
 else:
+    st.subheader("Data flow: from GitHub to this app")
+    flow_chart(BUILD_INFO)
     st.subheader("Layers")
     st.markdown("""
 | Layer | Schema | What happens |
