@@ -128,6 +128,29 @@ streamlit run streamlit_app.py
 
 To deploy on Streamlit Community Cloud: go to share.streamlit.io, choose **Create app**, pick this repo with branch `main` and file `streamlit_app.py`, then **Deploy**.
 
+## CFO / FP&A dashboard (second app)
+
+`fpa_dashboard.py` presents the same datamart in a CFO dashboard format: one month selector, YTD against budget and prior year, status flags, waterfalls and a one-line insight on every page.
+
+| Page | What it answers |
+|---|---|
+| Executive summary | Income statement, balance sheet and cash flow on one screen |
+| CFO brief | Status, key driver, risk and action for revenue, gross profit, EBITDA and net profit |
+| YTD analysis | What moved each metric from prior year to this year, by school or by cost line |
+| Income statement | Month, YTD and full year (actual + forecast) against prior year and budget |
+| Balance sheet | Movement, composition and strength against the opening balance |
+| Return on equity | DuPont: margin, asset turnover and leverage |
+| Cash flow | Opening to closing cash and the indirect statement |
+| Liquidity | Debt service coverage, months of cash, liquidity against borrowings |
+
+Revenue, costs, the cost budget, billings and collections come from the dbt marts. Fixed assets, borrowings, tax and the revenue budget are illustrative assumptions kept in `fpa_model.py`, which CI checks: the balance sheet must balance and the cash flow must explain the movement in cash.
+
+```bash
+streamlit run fpa_dashboard.py
+```
+
+To deploy it, create a second app on Streamlit Community Cloud from the same repo with main file `fpa_dashboard.py`.
+
 ## AI with controls (Snowflake Cortex Code pattern)
 
 This follows Snowflake's [Data Engineering with Cortex Code](https://www.snowflake.com/en/developers/guides/data-engineering-with-coco/) guide, adapted to finance:

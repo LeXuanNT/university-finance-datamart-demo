@@ -47,3 +47,15 @@ jobs:
                   f.write(f"| {r[0]} | {r[1]:,} | {r[2]} |\n")
           PY
           cat dq.md >> "$GITHUB_STEP_SUMMARY"
+      - name: FP&A dashboard model (three statements tie out)
+        run: |
+          python - <<'PY'
+          import duckdb, fpa_model
+          con = duckdb.connect("uni_finance.duckdb", read_only=True)
+          snap = str(con.execute("select max(snapshot_date) from reporting.rpt_finance_kpis").fetchone()[0])[:7]
+          m = fpa_model.build(lambda sql: con.execute(sql).df(), snap)
+          bs, cf = m["bs"], m["cf"]
+          assert abs((bs.total_assets - bs.total_liabilities - bs.equity).abs().max()) < 0.01, "balance sheet does not balance"
+          assert abs((bs.cash.diff().dropna() - cf.net.iloc[1:]).abs().max()) < 0.01, "cash flow does not explain cash movement"
+          print("FP&A model OK: balance sheet balances and cash flow ties to cash")
+          PY
