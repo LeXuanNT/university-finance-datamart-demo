@@ -1,9 +1,10 @@
 version: 2
+
 sources:
   - name: workday
     description: >
       Workday Financials extracts: cost centres, journal lines (actuals) and the approved budget.
-      Landed as-is, every column VARCHAR, plus _source_file / _loaded_at.
+      Landed as-is, every column VARCHAR, plus _source_file and _loaded_at.
     schema: "{{ var('raw_workday_schema') }}"
     config:
       loaded_at_field: _loaded_at
@@ -11,5 +12,8 @@ sources:
         warn_after: {count: 2, period: day}
     tables:
       - name: cost_centres
+        description: Cost-centre hierarchy, one row per cost centre.
       - name: journal_lines
+        description: Posted journal lines (operating expenses). Some lines arrive twice or with dd/MM/yyyy dates.
       - name: budget
+        description: Approved budget by cost centre, month and account.

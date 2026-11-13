@@ -25,6 +25,7 @@ MANIFEST = ROOT / "target" / "datamart_manifest.json"
 REPO = "LeXuanNT/university-finance-datamart-demo"
 REPO_URL = f"https://github.com/{REPO}"
 RELEASE_URL = f"{REPO_URL}/releases/download/datamart-latest"
+REQUIRED_RELATIONS = ["reporting.rpt_finance_kpis", "finance.fct_expected_credit_loss", "snapshots.snap_program_fees"]
 
 
 def _fetch(name: str, dest: Path, timeout: int = 60) -> None:
@@ -48,20 +49,37 @@ def _download_published() -> bool:
         with urllib.request.urlopen(f"{RELEASE_URL}/manifest.json", timeout=15) as r:
             remote = json.loads(r.read())
     except Exception:
-        return _local_manifest().get("source") == "github-actions" and DB.exists()
-    if _local_manifest().get("run_id") == remote.get("run_id") and DB.exists() and BUILD_RESULTS.exists():
+        return _local_manifest().get("source") == "github-actions" and _local_copy_is_usable()
+    if _local_manifest().get("run_id") == remote.get("run_id") and _local_copy_is_usable() and BUILD_RESULTS.exists():
         return True
+    candidate = DB.with_suffix(".download")
     try:
-        _fetch("uni_finance.duckdb", DB, timeout=180)
+        _fetch("uni_finance.duckdb", candidate, timeout=180)
+        # the file must open with this duckdb version and hold every table this version of the app reads
+        # (right after a push, the published copy can be one build behind the app code)
+        with duckdb.connect(str(candidate), read_only=True) as con:
+            for relation in REQUIRED_RELATIONS:
+                con.execute(f"select 1 from {relation} limit 1").fetchall()
         _fetch("build_results.json", BUILD_RESULTS)
-        with duckdb.connect(str(DB), read_only=True) as con:      # the file must open with this duckdb version
-            con.execute("select count(*) from reporting.rpt_finance_kpis").fetchone()
     except Exception:
-        DB.unlink(missing_ok=True)
+        candidate.unlink(missing_ok=True)
         return False
+    candidate.replace(DB)
     MANIFEST.write_text(json.dumps(remote))
     st.cache_data.clear()
     return True
+
+
+def _local_copy_is_usable() -> bool:
+    if not DB.exists():
+        return False
+    try:
+        with duckdb.connect(str(DB), read_only=True) as con:
+            for relation in REQUIRED_RELATIONS:
+                con.execute(f"select 1 from {relation} limit 1").fetchall()
+        return True
+    except Exception:
+        return False
 
 
 def _build_locally() -> None:
@@ -77,6 +95,7 @@ def _build_locally() -> None:
     subprocess.run([sys.executable, str(ROOT / "scripts" / "simulate_change.py")], check=True, cwd=ROOT)
     subprocess.run(dbt + ["snapshot"] + common, cwd=ROOT, capture_output=True, text=True, check=True)
     MANIFEST.write_text(json.dumps({"source": "local build"}))
+    st.cache_data.clear()
 
 
 @st.cache_resource(ttl=600, show_spinner="Getting the datamart published by the last successful build...")
@@ -84,7 +103,7 @@ def ensure_built() -> dict:
     """Checked every 10 minutes, so a new published build reaches an open app without a restart."""
     if os.environ.get("DATAMART_SOURCE", "").lower() != "local" and _download_published():
         return _local_manifest()
-    if not (DB.exists() and BUILD_RESULTS.exists()):
+    if not (_local_copy_is_usable() and BUILD_RESULTS.exists()):
         _build_locally()
     return _local_manifest() or {"source": "local build"}
 
@@ -118,7 +137,7 @@ digraph {
   subgraph cluster_ci { label="GitHub Actions (every push, nightly)"; fontname="Helvetica"; fontsize=11; fontcolor="#52514e"; color="#C5CBDB"; style="rounded";
     raw [label="1. Land raw files\nstudent system + Workday"];
     dbt [label="2. dbt build\nstaging > marts > reporting"];
-    test [label="3. Tests and controls\n56 tests, reconciliations,\nstatements tie out", fillcolor="#E6F3E7", color="#9CC9A0"];
+    test [label="3. Tests and controls\ndata and unit tests, reconciliations,\nconventions, SQL style", fillcolor="#E6F3E7", color="#9CC9A0"];
     pub [label="4. Publish\ndatamart file + test results\n+ manifest (release)", fillcolor="#3B4A7A", fontcolor="white", color="#3B4A7A"];
     raw -> dbt -> test; test -> pub [label="only if all pass"]; }
   subgraph cluster_st { label="Streamlit Community Cloud"; fontname="Helvetica"; fontsize=11; fontcolor="#52514e"; color="#C5CBDB"; style="rounded";

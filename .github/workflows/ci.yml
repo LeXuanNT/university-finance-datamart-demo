@@ -19,13 +19,17 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Land raw files (all VARCHAR)
         run: python scripts/load_raw_local.py
       - name: dbt build (models, seeds, snapshots, tests)
         run: dbt build --profiles-dir . --target local
       - name: Keep the build's test results
         run: cp target/run_results.json target/build_results.json
+      - name: Project conventions (structure, naming, docs, key tests)
+        run: python scripts/check_dbt_conventions.py
+      - name: SQL style (SQLFluff, dbt Labs style guide)
+        run: sqlfluff lint models tests analyses
       - name: Incremental re-run (idempotency check)
         run: dbt build --profiles-dir . --target local --select fct_student_payments+ fct_gl_actuals+
       - name: SCD Type 2 demo (next month's master-data extract)

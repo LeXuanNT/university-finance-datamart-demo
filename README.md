@@ -22,19 +22,60 @@ The design follows the same layered idea as
 |---|---|---|---|
 | raw | `RAW_SIS`, `RAW_WORKDAY` | tables (loaded by `COPY INTO`) | Extracts land as-is. **Every column is VARCHAR**, plus `_source_file` and `_loaded_at` |
 | staging | `STAGING` | views | One model per source table: dedupe, trim, standardise codes, parse dates, cast money to `DECIMAL(18,0)` |
-| intermediate | `INTERMEDIATE` | tables | Business logic: enrich invoices, quarantine test invoices, **revenue schedule** (billed → earned), invoice position at the snapshot |
-| marts / finance | `FINANCE` | tables (facts incremental) | **Star schema for Power BI:** 6 dimensions, 5 facts, plus a One Big Table extract |
+| intermediate | `INTERMEDIATE` | views (not for end users) | Business logic: enrich invoices, quarantine test invoices, **revenue schedule** (billed → earned), invoice position at the snapshot and at each balance date |
+| marts / finance | `FINANCE` | tables (facts incremental) | **Star schema for Power BI:** 6 dimensions, 6 facts (including the expected credit loss allowance), plus a One Big Table extract |
 | marts / reporting | `REPORTING` | tables | Pre-built answers: KPIs, AR aging, collections, budget vs actual, school contribution |
-| marts / statements | `STATEMENTS` | tables | Income statement (AASB group format and VAS B02-DN), balance sheet extract, ECL allowance |
+| marts / statements | `STATEMENTS` | tables | Income statement (AASB group format and VAS B02-DN) and balance sheet extract |
 | seeds | `REFERENCE` | tables | Finance-owned mappings: account → statement line, ECL provision matrix |
 | snapshots | `SNAPSHOTS` | SCD Type 2 tables | History of program fees and cost-centre hierarchy |
 | audit | `AUDIT` | table | `audit_data_quality` is a readable trail of every issue found and how it was handled |
 
 The full lineage graph is in `docs/dbt_docs_lineage.html`. Open it in a browser and click the graph icon at the bottom right.
 
-## Controls (`dbt build` runs 56 tests; all pass)
+## dbt best practices followed
 
-- **Integrity:** unique and not-null keys, foreign-key `relationships` (invoice → school/campus, journal line → cost centre), accepted values for status and payment channel.
+The project follows dbt Labs' guides ([how we structure our dbt projects](https://docs.getdbt.com/best-practices/how-we-structure/1-guide-overview) and the SQL style guide), and CI enforces them.
+
+```
+models/
+  staging/
+    sis/        _sis__sources.yml      _sis__models.yml      stg_sis__*.sql
+    workday/    _workday__sources.yml  _workday__models.yml  stg_workday__*.sql
+  intermediate/
+    finance/    _int_finance__models.yml   int_*.sql
+  marts/
+    finance/    _finance__models.yml       dim_*.sql  fct_*.sql  obt_*.sql
+    reporting/  _reporting__models.yml     rpt_*.sql
+    statements/ _statements__models.yml    fct_*.sql  rpt_*.sql
+    _exposures.yml
+  audit/        _audit__models.yml         audit_data_quality.sql
+tests/          assert_*.sql (reconciliations)   generic/ (reusable tests)
+```
+
+| Practice | How it is applied here |
+|---|---|
+| Staging is the only door to raw data | One staging model per source table, one source per model, materialised as views; only renaming, casting, cleaning and dedupe |
+| Intermediate models are not for end users | Views in their own schema; the app and Power BI read marts only, which the exposures declare |
+| Marts are named for what they are | `dim_`, `fct_`, `rpt_`, `obt_`; one folder and one properties file per area |
+| Every model is documented and key-tested | Description plus a primary-key test on all 36 models; sources, seeds and snapshots described |
+| Logic is unit-tested | dbt unit tests on the revenue schedule and the invoice position |
+| One SQL style | Import CTEs at the top, one logical step per CTE, `select * from final`, lowercase, trailing commas, explicit `as` and join types; checked by SQLFluff (`.sqlfluff`) |
+| Downstream use is declared | `_exposures.yml` lists the Streamlit app and the Power BI model with the marts they depend on |
+| The rules are enforced, not remembered | `scripts/check_dbt_conventions.py` reads dbt's manifest and fails CI on a naming, placement, documentation or key-test gap |
+
+One deliberate exception: `audit_data_quality` reads the sources directly, because it has to count the rows that staging removes or repairs.
+
+To check locally:
+
+```bash
+pip install -r requirements-dev.txt
+dbt parse --profiles-dir . --target local && python scripts/check_dbt_conventions.py
+sqlfluff lint models tests analyses
+```
+
+## Controls (`dbt build` runs 111 data tests and 2 unit tests; all pass)
+
+- **Integrity:** a primary-key test on every model (unique and not-null, or a unique combination of columns), foreign-key `relationships` (invoice → school/campus, journal line → cost centre), accepted values for status and payment channel.
 - **Finance reconciliations** (`tests/`):
   - The revenue schedule ties to issued invoices (to the dong).
   - No invoice is overpaid after the bank-feed dedupe.
@@ -44,6 +85,7 @@ The full lineage graph is in `docs/dbt_docs_lineage.html`. Open it in a browser 
   - Statement revenue equals earned tuition, and statement expenses equal GL actuals.
   - The flat extract (`obt_student_finance`) carries exactly the invoices and net tuition of the fact table.
 - **Business-rule warnings:** `warn_invoice_above_fee_schedule` flags an invoice above its program fee without stopping the build.
+- **Unit tests** (logic checked on hand-written rows, before any real data): an invoice is earned in four equal parts over its teaching months, and payments after the snapshot date do not reduce the balance.
 - **Freshness:** `dbt source freshness` warns if an SIS or Workday extract is more than 2 days old.
 
 If any test fails, `dbt build` stops, so bad numbers never reach Power BI.
@@ -102,7 +144,7 @@ These techniques come from the [Airbnb end-to-end project (dbt + Snowflake + AWS
 | `rpt_income_statement_aasb` | Income statement in a typical Australian university annual-report line order (Fees and charges, Employee related expenses, Impairment of financial assets, Other expenses...). Lines with no Vietnam activity are kept at zero so the layout maps 1:1 to the group report |
 | `rpt_income_statement_vas` | The same ledger in the Vietnamese B02-DN layout (revenue, revenue deductions, cost of services, selling, G&A) |
 | `rpt_balance_sheet_extract` | Student receivables (gross), the ECL allowance and contract liabilities (tuition billed but not yet taught) at the prior year-end and at the snapshot |
-| `int_ecl_allowance` | A simplified AASB 9 provision matrix applied to aged student balances |
+| `fct_expected_credit_loss` (in `marts/finance`) | A simplified AASB 9 provision matrix applied to aged student balances, by balance date, campus and aging bucket |
 
 Both mappings live in `seeds/account_statement_mapping.csv`, a Finance-owned file. The mapping and the ECL rates in `seeds/ecl_provision_matrix.csv` are **illustrative assumptions**.
 
@@ -113,7 +155,7 @@ flowchart LR
   A[Push to main<br/>dbt models, tests, raw extracts, app code] --> B
   subgraph CI[GitHub Actions: every push and nightly]
     B[1. Land raw files] --> C[2. dbt build<br/>staging, marts, reporting]
-    C --> D[3. Tests and controls<br/>56 tests, reconciliations,<br/>statements tie out]
+    C --> D[3. Tests and controls<br/>data tests, unit tests, reconciliations,<br/>conventions and SQL style]
     D -- only if all pass --> E[4. Publish release datamart-latest<br/>DuckDB file, test results, manifest]
   end
   D -- any failure --> X[Nothing published:<br/>the app keeps the last good data]
@@ -126,7 +168,7 @@ flowchart LR
 
 | Step | Where | What happens |
 |---|---|---|
-| Build and test | `.github/workflows/ci.yml` | Lands the raw files, runs `dbt build`, the incremental re-run, the SCD2 check, source freshness and the three-statement tie-out |
+| Build and test | `.github/workflows/ci.yml` | Lands the raw files, runs `dbt build`, the project-convention check and SQLFluff, the incremental re-run, the SCD2 check, source freshness and the three-statement tie-out |
 | Publish | same workflow, last step | On `main` only, and only when every step passed: uploads `uni_finance.duckdb`, `build_results.json` and `manifest.json` (commit, run, time, tests passed) to the `datamart-latest` release |
 | Load | `app_common.py` | The app downloads the published datamart and re-checks the manifest every 10 minutes, so a new build reaches an open app without a restart |
 | Show | app sidebar | The build number, commit and time of the data on screen, linked back to the GitHub run |
@@ -179,7 +221,7 @@ The plugin layout follows the guide but has not yet been tested inside Cortex Co
 ```bash
 pip install -r requirements.txt
 python scripts/load_raw_local.py                 # lands raw_files/ into uni_finance.duckdb (all VARCHAR)
-dbt build --profiles-dir . --target local        # 36 models, 2 seeds, 2 snapshots, 56 tests
+dbt build --profiles-dir . --target local        # 36 models, 2 seeds, 2 snapshots, 111 data tests, 2 unit tests
 python scripts/simulate_change.py && dbt snapshot --profiles-dir . --target local   # SCD2 demo
 dbt docs generate --static --profiles-dir . --target local
 ```

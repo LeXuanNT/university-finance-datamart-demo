@@ -15,3 +15,7 @@ seeds:
       Simplified AASB 9 provision matrix for student receivables (rate by days past due). ASSUMED rates for the demo.
     config:
       column_types: {min_days_past_due: integer, max_days_past_due: integer, ecl_rate: double}
+    columns:
+      - name: aging_bucket
+        description: Primary key.
+        data_tests: [unique, not_null]

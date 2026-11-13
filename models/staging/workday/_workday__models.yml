@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: stg_workday__cost_centres
+    description: Cost centres, one row per cost centre, with codes trimmed and upper-cased.
+    columns:
+      - name: cost_centre_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: stg_workday__journal_lines
+    description: >
+      Journal lines, one row per line. Duplicates removed, both date formats parsed, cost-centre codes cleaned.
+      Negative amounts are kept: they are accrual reversals.
+    columns:
+      - name: journal_line_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: posting_date
+        description: Date the journal was posted.
+        data_tests: [not_null]
+      - name: cost_centre_id
+        description: Cost centre charged.
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_workday__cost_centres'), field: cost_centre_id}}
+
+  - name: stg_workday__budget
+    description: Approved budget, one row per cost centre, fiscal month and account.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [cost_centre_id, fiscal_month, account_code]}
+    columns:
+      - name: cost_centre_id
+        description: Cost centre the budget belongs to.
+        data_tests: [not_null]

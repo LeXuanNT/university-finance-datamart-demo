@@ -1,0 +1,2 @@
+sqlfluff>=3.4
+sqlfluff-templater-dbt>=3.4

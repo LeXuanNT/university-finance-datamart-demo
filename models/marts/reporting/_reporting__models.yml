@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: rpt_finance_kpis
+    description: Month-end headline, one row per KPI, at the snapshot date.
+    columns:
+      - name: kpi
+        description: Primary key, the name of the KPI.
+        data_tests: [unique, not_null]
+      - name: value
+        description: Value of the KPI, in the unit given in the unit column.
+        data_tests: [not_null]
+
+  - name: rpt_ar_aging
+    description: Open student balances at the snapshot date, one row per campus, school and aging bucket.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [campus_name, school_code, aging_bucket]}
+    columns:
+      - name: outstanding_vnd
+        description: Open balance in the bucket.
+        data_tests: [not_null]
+
+  - name: rpt_collections
+    description: >
+      Collection performance, one row per semester and campus. Semesters still inside their 60-day collection
+      window are flagged OPEN and are not comparable yet.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [semester, campus_name]}
+    columns:
+      - name: period_status
+        description: MATURE, or OPEN while the semester is still being collected.
+        data_tests:
+          - accepted_values: {arguments: {values: ['MATURE', 'OPEN - still collecting']}}
+      - name: collection_rate_pct
+        description: Collected as a percentage of net billed.
+
+  - name: rpt_budget_vs_actual
+    description: Budget against actual for closed months, one row per cost centre, fiscal month and account category.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [cost_centre_id, fiscal_month, account_category]}
+    columns:
+      - name: variance_vnd
+        description: Actual less budget; positive means overspend.
+      - name: status
+        description: OVER or UNDER when more than 10% away from budget, otherwise ON TRACK.
+        data_tests:
+          - accepted_values: {arguments: {values: ['OVER', 'UNDER', 'ON TRACK']}}
+
+  - name: rpt_school_contribution
+    description: >
+      Earned revenue less direct costs, one row per fiscal year and school. Shared services are their own line and
+      are not allocated.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [fiscal_year, school_code]}
+    columns:
+      - name: contribution_vnd
+        description: Earned revenue less the school's direct costs.

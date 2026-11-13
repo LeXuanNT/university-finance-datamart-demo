@@ -1,0 +1,168 @@
+version: 2
+
+models:
+  - name: dim_campus
+    description: Campuses, one row per campus.
+    columns:
+      - name: campus_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: dim_school
+    description: Schools, one row per school, plus a SHARED member for costs that belong to no school.
+    columns:
+      - name: school_code
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: dim_program
+    description: Academic programs, one row per program, with the current fee per semester.
+    columns:
+      - name: program_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: school_code
+        description: School that owns the program.
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_school'), field: school_code}}
+
+  - name: dim_cost_centre
+    description: Cost centres, one row per cost centre. Non-academic cost centres are assigned to the SHARED school.
+    columns:
+      - name: cost_centre_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: school_code
+        description: School for academic cost centres, otherwise SHARED.
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_school'), field: school_code}}
+
+  - name: dim_account
+    description: Expense accounts, one row per account, with the account category.
+    columns:
+      - name: account_code
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: dim_month
+    description: Fiscal calendar (fiscal year = calendar year), one row per month covered by budget and actuals.
+    columns:
+      - name: fiscal_month
+        description: Primary key, formatted YYYY-MM.
+        data_tests: [unique, not_null]
+      - name: is_closed
+        description: True when the month is on or before the snapshot month.
+
+  - name: fct_tuition_invoices
+    description: Reportable tuition invoices (test invoices excluded), one row per invoice.
+    columns:
+      - name: invoice_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: school_code
+        description: School of the student's program.
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_school'), field: school_code}}
+      - name: campus_id
+        description: Campus the student studies at.
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_campus'), field: campus_id}}
+      - name: gross_fee_vnd
+        description: Fee before scholarship.
+        data_tests:
+          - positive_value
+      - name: net_tuition_vnd
+        description: Gross fee less scholarship, the amount billed to the student.
+
+  - name: fct_student_payments
+    description: >
+      Student payments against reportable invoices, one row per payment. Incremental with a 45-day lookback for
+      late-arriving bank-feed rows.
+    columns:
+      - name: payment_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: invoice_id
+        description: Invoice the payment settles.
+        data_tests:
+          - relationships: {arguments: {to: ref('fct_tuition_invoices'), field: invoice_id}}
+
+  - name: fct_tuition_revenue_earned
+    description: Earned tuition revenue, one row per invoice and teaching month. Use this, not billings, for revenue.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [invoice_id, revenue_month]}
+    columns:
+      - name: invoice_id
+        description: Invoice the revenue comes from.
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('fct_tuition_invoices'), field: invoice_id}}
+      - name: earned_vnd
+        description: Revenue earned in the month.
+
+  - name: fct_gl_actuals
+    description: >
+      Operating-expense journal lines from the ledger, one row per journal line. Incremental: reprocesses from the
+      start of the previous month so late journals and reversals are captured.
+    columns:
+      - name: journal_line_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: account_category
+        description: Category of the expense account.
+        data_tests: [not_null]
+      - name: cost_centre_id
+        description: Cost centre charged.
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_cost_centre'), field: cost_centre_id}}
+      - name: amount_vnd
+        description: Expense amount; negative lines are accrual reversals.
+
+  - name: fct_budget
+    description: Approved operating-expense budget, one row per cost centre, fiscal month and account.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [cost_centre_id, fiscal_month, account_code]}
+    columns:
+      - name: cost_centre_id
+        description: Cost centre the budget belongs to.
+        data_tests:
+          - not_null
+          - relationships: {arguments: {to: ref('dim_cost_centre'), field: cost_centre_id}}
+
+  - name: fct_expected_credit_loss
+    description: >
+      Expected credit loss allowance on student receivables (AASB 9 simplified approach), one row per balance date,
+      campus and aging bucket. Loss rates come from the ecl_provision_matrix seed and are assumed for the demo.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [as_of_date, campus_id, aging_bucket]}
+    columns:
+      - name: as_of_date
+        description: Balance date (prior year-end or the snapshot date).
+        data_tests: [not_null]
+      - name: campus_id
+        description: Campus of the student.
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_campus'), field: campus_id}}
+      - name: gross_receivable_vnd
+        description: Open student balance in the bucket.
+      - name: ecl_allowance_vnd
+        description: Open balance multiplied by the bucket's loss rate.
+
+  - name: obt_student_finance
+    description: >
+      Flat extract for Excel and Power BI import, one row per reportable invoice, with program, school, campus and
+      payment status. Built by the metadata_join macro.
+    columns:
+      - name: invoice_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: school_name
+        description: Name of the school.
+        data_tests: [not_null]
+      - name: campus_name
+        description: Name of the campus.
+        data_tests: [not_null]

@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: audit_data_quality
+    description: >
+      Readable evidence of each data-quality issue found in the raw extracts and how the pipeline handled it, one
+      row per issue. Reads the sources directly on purpose: it has to count what staging removes or repairs.
+      Enforcement is done by the tests; this table is the audit trail for Finance.
+    columns:
+      - name: issue
+        description: Primary key, the issue found.
+        data_tests: [unique, not_null]
+      - name: rows_affected
+        description: Number of raw rows (or distinct spellings) affected.
+        data_tests: [not_null]

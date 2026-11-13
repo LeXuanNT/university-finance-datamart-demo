@@ -7,3 +7,4 @@ dbt_packages/
 __pycache__/
 .venv/
 .streamlit/secrets.toml
+*.download

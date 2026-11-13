@@ -397,12 +397,11 @@ elif page == "Tuition & scholarships":
     st.caption("Source: tuition invoices from the student system (issued invoices only), by invoice issue date. Amounts in VND billion.")
 
 elif page == "Receivables & collections":
-    pos = q("""select cast(p.as_of_date as varchar) d, m.aging_bucket bucket, m.ecl_rate rate, c.campus_name campus,
-                      count(*) invoices, sum(p.outstanding_vnd)/1e9 ar, sum(p.outstanding_vnd * m.ecl_rate)/1e9 ecl
-               from statements.int_ar_position_by_date p
-               join reference.ecl_provision_matrix m on p.days_past_due between m.min_days_past_due and m.max_days_past_due
+    pos = q("""select cast(e.as_of_date as varchar) d, e.aging_bucket bucket, e.ecl_rate rate, c.campus_name campus,
+                      sum(e.open_invoices) invoices, sum(e.gross_receivable_vnd)/1e9 ar, sum(e.ecl_allowance_vnd)/1e9 ecl
+               from finance.fct_expected_credit_loss e
                join finance.dim_campus c using (campus_id)
-               where p.outstanding_vnd > 0 group by all""")
+               group by all""")
     dates = sorted(pos.d.unique())
     d0, d1 = dates[0], dates[-1]
     lab = lambda d: pd.Timestamp(d).strftime("%d %b %Y")
@@ -682,8 +681,9 @@ elif page == "Financial statements":
             sf["col"] = pd.to_datetime(sf.as_of_date).dt.strftime("%d %b %Y")
             st.markdown("**Statement of financial position: student-finance lines**, VND bn")
             st.dataframe(statement(sf).style.format("{:,.1f}"), width="stretch")
-            ecl = q("select as_of_date, aging_bucket, open_invoices, gross_receivable_vnd/1e9 gross_bn, ecl_rate, "
-                    "ecl_allowance_vnd/1e9 ecl_bn from statements.int_ecl_allowance order by 1, 2")
+            ecl = q("select as_of_date, aging_bucket, sum(open_invoices) open_invoices, "
+                    "sum(gross_receivable_vnd)/1e9 gross_bn, ecl_rate, sum(ecl_allowance_vnd)/1e9 ecl_bn "
+                    "from finance.fct_expected_credit_loss group by 1, 2, 5 order by 1, 2")
             with st.expander("ECL provision matrix workings"):
                 st.dataframe(ecl.round(2), hide_index=True, width="stretch")
     with tabs[3]:
@@ -869,8 +869,8 @@ else:
 |---|---|---|
 | Raw | `raw_sis`, `raw_workday` | Extracts landed as-is, every column text, plus source file and load time |
 | Staging | `staging` | Dedupe, standardise codes, parse dd/MM dates, money as DECIMAL |
-| Intermediate | `intermediate` | Quarantine test invoices, spread tuition over teaching months, AR position at snapshot |
-| Marts | `finance` | Star schema (6 dimensions, 5 facts) for Power BI |
+| Intermediate | `intermediate` | Views, not for end users: quarantine test invoices, spread tuition over teaching months, AR position at snapshot |
+| Marts | `finance` | Star schema (6 dimensions, 6 facts) for Power BI |
 | Reporting | `reporting` | KPIs, AR aging, collections, budget vs actual, school contribution |
 | Audit | `audit` | Readable data-quality evidence |
 """)
@@ -880,6 +880,14 @@ else:
 - A skill (`new-finance-model`) encodes the workflow for adding a model.
 - A guard hook blocks agents from running against production, `--full-refresh`, or editing raw SIS/Workday tables.
 - GitHub Actions runs all models and tests on every pull request; an optional review agent comments on the PR.
+""")
+    st.subheader("dbt best practices, enforced in CI")
+    st.markdown("""
+- **Structure:** one staging model per source table; intermediate models are views that no report reads; marts are `dim_`, `fct_`, `rpt_`; one properties file per folder.
+- **Every model** has a description and a primary-key test; the revenue schedule and the invoice position have **unit tests**.
+- **One SQL style** (import CTEs, `select * from final`), checked by SQLFluff.
+- **Exposures** declare which marts this app and the Power BI model depend on.
+- A conventions script reads dbt's manifest and fails the build on any naming, placement, documentation or key-test gap.
 """)
     st.subheader("dbt techniques used")
     st.markdown("""

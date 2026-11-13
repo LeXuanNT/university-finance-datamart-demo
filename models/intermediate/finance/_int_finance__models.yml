@@ -1,0 +1,104 @@
+version: 2
+
+models:
+  - name: int_invoices_enriched
+    description: Reportable invoices (gross fee > 0), one row per invoice, with program, school, campus and residency.
+    columns:
+      - name: invoice_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: int_invoices_quarantined
+    description: Test invoices (gross fee <= 0), one row per invoice. Kept for audit, excluded from every report.
+    columns:
+      - name: invoice_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+
+  - name: int_revenue_schedule
+    description: >
+      Earned tuition revenue, one row per issued invoice and teaching month. Each invoice is spread evenly over the
+      four months of its teaching period, because billed is not earned.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [invoice_id, revenue_month]}
+    columns:
+      - name: invoice_id
+        description: Invoice the revenue comes from.
+        data_tests: [not_null]
+      - name: revenue_month
+        description: First day of the month the revenue is earned in.
+        data_tests: [not_null]
+      - name: earned_vnd
+        description: One quarter of the invoice's net tuition.
+
+  - name: int_invoice_position
+    description: >
+      Position of each issued invoice at the snapshot date, one row per invoice: billed, paid, paid by the due date,
+      still outstanding and days past due.
+    columns:
+      - name: invoice_id
+        description: Primary key.
+        data_tests: [unique, not_null]
+      - name: outstanding_vnd
+        description: Net tuition less payments received up to the snapshot date.
+      - name: days_past_due
+        description: Days from the due date to the snapshot date (negative when not yet due).
+
+  - name: int_ar_position_by_date
+    description: >
+      Open balance of each issued invoice at two balance dates (prior year-end and the snapshot date), one row per
+      balance date and invoice. Feeds the expected credit loss calculation.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [as_of_date, invoice_id]}
+    columns:
+      - name: as_of_date
+        description: Balance date.
+        data_tests: [not_null]
+      - name: invoice_id
+        description: Invoice.
+        data_tests: [not_null]
+
+unit_tests:
+  - name: test_invoice_is_earned_over_four_teaching_months
+    description: >
+      An issued invoice is earned in four equal parts over its teaching months, period C crosses the year end,
+      and a cancelled invoice earns nothing.
+    model: int_revenue_schedule
+    given:
+      - input: ref('int_invoices_enriched')
+        rows:
+          - {invoice_id: INV-A, fiscal_year: 2026, teaching_period: A, invoice_status: ISSUED, net_tuition_vnd: 4000}
+          - {invoice_id: INV-C, fiscal_year: 2026, teaching_period: C, invoice_status: ISSUED, net_tuition_vnd: 8000}
+          - {invoice_id: INV-X, fiscal_year: 2026, teaching_period: A, invoice_status: CANCELLED, net_tuition_vnd: 1000}
+    expect:
+      rows:
+        - {invoice_id: INV-A, revenue_month: 2026-02-01, fiscal_month: 2026-02, earned_vnd: 1000}
+        - {invoice_id: INV-A, revenue_month: 2026-03-01, fiscal_month: 2026-03, earned_vnd: 1000}
+        - {invoice_id: INV-A, revenue_month: 2026-04-01, fiscal_month: 2026-04, earned_vnd: 1000}
+        - {invoice_id: INV-A, revenue_month: 2026-05-01, fiscal_month: 2026-05, earned_vnd: 1000}
+        - {invoice_id: INV-C, revenue_month: 2026-10-01, fiscal_month: 2026-10, earned_vnd: 2000}
+        - {invoice_id: INV-C, revenue_month: 2026-11-01, fiscal_month: 2026-11, earned_vnd: 2000}
+        - {invoice_id: INV-C, revenue_month: 2026-12-01, fiscal_month: 2026-12, earned_vnd: 2000}
+        - {invoice_id: INV-C, revenue_month: 2027-01-01, fiscal_month: 2027-01, earned_vnd: 2000}
+
+  - name: test_position_ignores_payments_after_the_snapshot
+    description: >
+      Payments after the snapshot date do not reduce the balance, and only payments on or before the due date
+      count as paid on time.
+    model: int_invoice_position
+    overrides:
+      vars: {snapshot_date: "2026-10-31"}
+    given:
+      - input: ref('int_invoices_enriched')
+        rows:
+          - {invoice_id: INV-1, invoice_status: ISSUED, issue_date: 2026-06-01, due_date: 2026-07-01, net_tuition_vnd: 1000}
+      - input: ref('stg_sis__payments')
+        rows:
+          - {payment_id: P1, invoice_id: INV-1, payment_date: 2026-06-20, amount_vnd: 300}
+          - {payment_id: P2, invoice_id: INV-1, payment_date: 2026-08-01, amount_vnd: 200}
+          - {payment_id: P3, invoice_id: INV-1, payment_date: 2026-11-05, amount_vnd: 500}
+    expect:
+      rows:
+        - {invoice_id: INV-1, paid_vnd: 500, paid_by_due_vnd: 300, outstanding_vnd: 500, days_past_due: 122, last_payment_date: 2026-08-01}

@@ -1,61 +1,73 @@
 version: 2
+
 models:
   - name: stg_sis__campuses
+    description: Campuses, one row per campus, with city spellings standardised.
     columns:
       - name: campus_id
+        description: Primary key.
         data_tests: [unique, not_null]
       - name: city
+        description: Standardised city name.
         data_tests:
           - accepted_values:
               arguments: {values: ['Ho Chi Minh City', 'Hanoi', 'Da Nang']}
+
   - name: stg_sis__programs
+    description: Academic programs, one row per program, with school and fee per semester in VND.
     columns:
       - name: program_id
+        description: Primary key.
         data_tests: [unique, not_null]
+
   - name: stg_sis__students
+    description: Students, one row per student.
     columns:
       - name: student_id
+        description: Primary key.
         data_tests: [unique, not_null]
       - name: program_id
+        description: Program the student is enrolled in.
         data_tests:
           - relationships: {arguments: {to: ref('stg_sis__programs'), field: program_id}}
       - name: campus_id
+        description: Campus the student studies at.
         data_tests:
           - relationships: {arguments: {to: ref('stg_sis__campuses'), field: campus_id}}
+
   - name: stg_sis__invoices
+    description: >
+      Tuition invoices, one row per invoice. Duplicate re-exported rows removed, statuses standardised, dates parsed,
+      money cast to DECIMAL. Test invoices (gross fee <= 0) are still present here.
     columns:
       - name: invoice_id
+        description: Primary key.
         data_tests: [unique, not_null]
       - name: invoice_status
+        description: ISSUED or CANCELLED.
         data_tests:
           - accepted_values: {arguments: {values: ['ISSUED', 'CANCELLED']}}
       - name: issue_date
+        description: Date the invoice was issued.
         data_tests: [not_null]
       - name: due_date
+        description: Date payment is due.
         data_tests: [not_null]
+      - name: teaching_period
+        description: A (Feb to May), B (Jun to Sep) or C (Oct to Jan).
+      - name: net_tuition_vnd
+        description: Gross fee less scholarship.
+
   - name: stg_sis__payments
+    description: Student payments, one row per payment. Replayed bank-feed rows removed, channels standardised.
     columns:
       - name: payment_id
+        description: Primary key.
         data_tests: [unique, not_null]
       - name: payment_date
+        description: Date the payment was received.
         data_tests: [not_null]
       - name: payment_channel
+        description: How the student paid.
         data_tests:
           - accepted_values: {arguments: {values: ['BANK_TRANSFER', 'VNPAY', 'CARD', 'CASH']}}
-  - name: stg_workday__cost_centres
-    columns:
-      - name: cost_centre_id
-        data_tests: [unique, not_null]
-  - name: stg_workday__journal_lines
-    columns:
-      - name: journal_line_id
-        data_tests: [unique, not_null]
-      - name: posting_date
-        data_tests: [not_null]
-      - name: cost_centre_id
-        data_tests:
-          - relationships: {arguments: {to: ref('stg_workday__cost_centres'), field: cost_centre_id}}
-  - name: stg_workday__budget
-    data_tests:
-      - dbt_utils_free_unique_combination:
-          arguments: {columns: [cost_centre_id, fiscal_month, account_code]}

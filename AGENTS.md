@@ -18,11 +18,19 @@ All data is **synthetic**. Never add real student, staff or vendor data.
 ## Layering and naming
 | Layer | Folder | Prefix | Rule |
 |---|---|---|---|
-| staging | `models/staging/<source>/` | `stg_<source>__<table>` | 1:1 with a source; dedupe, trim, cast; no joins |
-| intermediate | `models/intermediate/` | `int_` | business logic; joins allowed |
-| marts | `models/marts/finance/` | `dim_` / `fct_` | star schema for Power BI |
+| staging | `models/staging/<source>/` | `stg_<source>__<table>` | exactly one source table per model; rename, cast, clean, dedupe; no joins; views |
+| intermediate | `models/intermediate/finance/` | `int_` | business logic; joins allowed; views; never read by a report, the app or Power BI |
+| marts | `models/marts/finance/` | `dim_` / `fct_` / `obt_` | star schema for Power BI |
 | reporting | `models/marts/reporting/` | `rpt_` | pre-aggregated answers for leadership |
-| audit | `models/audit/` | `audit_` | readable data-quality evidence |
+| statements | `models/marts/statements/` | `fct_` / `rpt_` | statutory-style statements |
+| audit | `models/audit/` | `audit_` | readable data-quality evidence; the only non-staging model allowed to read sources |
+
+## Conventions every model must meet (CI fails otherwise)
+- A description and a primary-key test (`unique` + `not_null`, or `unique_combination_of_columns`) in the folder's `_<folder>__models.yml`.
+- SQL style: import CTEs first (`select * from {{ ref(...) }}`), one logical step per CTE, final CTE named `final`, `select * from final`; lowercase; explicit `as`, explicit join types, `group by 1, 2`.
+- New logic with branches or date arithmetic gets a dbt unit test next to the model's properties.
+- A model read by the app or Power BI must be a mart and be listed in `models/marts/_exposures.yml`.
+- Check before committing: `python scripts/check_dbt_conventions.py` and `sqlfluff lint models tests analyses`.
 
 ## Finance rules (non-negotiable)
 1. Money is `{{ money(...) }}` = `DECIMAL(18,0)` VND. Never FLOAT/DOUBLE.

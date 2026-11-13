@@ -1,0 +1,52 @@
+version: 2
+
+exposures:
+  - name: finance_datamart_app
+    label: Finance datamart app (CFO / FP&A dashboard)
+    type: application
+    maturity: medium
+    url: https://github.com/LeXuanNT/university-finance-datamart-demo
+    description: >
+      Streamlit app (streamlit_app.py). Reads only marts and the audit table, from the copy of the datamart that
+      CI published after every test passed.
+    owner:
+      name: Xuan Le
+    depends_on:
+      - ref('dim_campus')
+      - ref('fct_tuition_revenue_earned')
+      - ref('fct_gl_actuals')
+      - ref('fct_budget')
+      - ref('dim_cost_centre')
+      - ref('fct_tuition_invoices')
+      - ref('fct_student_payments')
+      - ref('fct_expected_credit_loss')
+      - ref('obt_student_finance')
+      - ref('rpt_finance_kpis')
+      - ref('rpt_collections')
+      - ref('rpt_budget_vs_actual')
+      - ref('rpt_income_statement_aasb')
+      - ref('rpt_income_statement_vas')
+      - ref('rpt_balance_sheet_extract')
+      - ref('audit_data_quality')
+      - ref('snap_program_fees')
+      - ref('snap_cost_centres')
+
+  - name: power_bi_finance_model
+    label: Power BI finance model
+    type: dashboard
+    maturity: low
+    description: Star schema for Power BI, described in docs/power_bi_model.md (design only in this demo).
+    owner:
+      name: Xuan Le
+    depends_on:
+      - ref('dim_campus')
+      - ref('dim_school')
+      - ref('dim_program')
+      - ref('dim_cost_centre')
+      - ref('dim_account')
+      - ref('dim_month')
+      - ref('fct_tuition_invoices')
+      - ref('fct_student_payments')
+      - ref('fct_tuition_revenue_earned')
+      - ref('fct_gl_actuals')
+      - ref('fct_budget')

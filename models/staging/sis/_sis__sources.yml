@@ -1,9 +1,10 @@
 version: 2
+
 sources:
   - name: sis
     description: >
-      Student Administration Management System (SIS) extracts: student master, programs, campuses,
-      tuition invoices and payments. Landed as-is, every column VARCHAR, plus _source_file / _loaded_at.
+      Student information system (SIS) extracts: student master, programs, campuses, tuition invoices and payments.
+      Landed as-is, every column VARCHAR, plus _source_file and _loaded_at.
     schema: "{{ var('raw_sis_schema') }}"
     config:
       loaded_at_field: _loaded_at
@@ -11,7 +12,12 @@ sources:
         warn_after: {count: 2, period: day}
     tables:
       - name: campuses
+        description: One row per campus.
       - name: programs
+        description: One row per academic program, with its school and fee per semester.
       - name: students
+        description: One row per student, with program, campus, intake and residency.
       - name: invoices
+        description: Tuition invoices, one per student per semester. Re-exports create duplicate rows.
       - name: payments
+        description: Student payments against invoices. The bank feed sometimes replays rows.

@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: fct_statement_lines
+    description: >
+      Income-statement amounts, one row per fiscal year and account, mapped to both statement layouts. The single
+      source the AASB and VAS statements read from. Revenue is positive, expenses negative.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [fiscal_year, account_code]}
+    columns:
+      - name: account_code
+        description: Account, as in the account_statement_mapping seed.
+        data_tests: [not_null]
+
+  - name: rpt_income_statement_aasb
+    description: Income statement in the group annual-report layout (AASB), one row per fiscal year and line.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [fiscal_year, line_order]}
+    columns:
+      - name: amount_vnd
+        description: Amount for the line; expenses are shown as positive numbers.
+        data_tests: [not_null]
+
+  - name: rpt_income_statement_vas
+    description: Income statement in the Vietnamese B02-DN layout (VAS), one row per fiscal year and line.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [fiscal_year, line_order]}
+    columns:
+      - name: amount_vnd
+        description: Amount for the line.
+        data_tests: [not_null]
+
+  - name: rpt_balance_sheet_extract
+    description: >
+      Student-finance lines of the statement of financial position, one row per balance date and line: gross and
+      net receivables, the credit-loss allowance and contract liabilities.
+    data_tests:
+      - unique_combination_of_columns:
+          arguments: {combination_of_columns: [as_of_date, line_order]}
+    columns:
+      - name: amount_vnd
+        description: Amount for the line.
+        data_tests: [not_null]

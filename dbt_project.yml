@@ -2,6 +2,7 @@ name: uni_finance
 version: "1.0.0"
 config-version: 2
 profile: uni_finance
+require-dbt-version: [">=1.9.0", "<2.0.0"]
 
 model-paths: ["models"]
 macro-paths: ["macros"]
@@ -9,6 +10,7 @@ test-paths: ["tests"]
 seed-paths: ["seeds"]
 snapshot-paths: ["snapshots"]
 analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
 
 vars:
   snapshot_date: "2026-10-31"      # month-end close being reported; override: --vars '{snapshot_date: 2026-11-30}'
@@ -21,7 +23,8 @@ models:
       +materialized: view
       +schema: staging
     intermediate:
-      +materialized: table
+      # not for end users: views in their own schema, never queried by a BI tool or the app
+      +materialized: view
       +schema: intermediate
     marts:
       +materialized: table
@@ -39,6 +42,10 @@ seeds:
   uni_finance:
     +schema: reference
 
-tests:
+snapshots:
+  uni_finance:
+    +schema: snapshots
+
+data_tests:
   uni_finance:
     +severity: error
